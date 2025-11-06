@@ -1,19 +1,23 @@
 -make map gen
 -make autotile
-
 -make player move
 -bhopping
 -make minimap
--make player buildings
+-make player building
+
 -make strucs spawn
 -make stone tiles
 -make resorce gathering
+-make inventory
 -make gems
 -make sin wave vfx
+-make mining
 -make gun
 -make rocket jumping
+-make paralax
 -make 3 enimes and boss
 -make npcs
+-make chests
 -make story
 -make menu
 -make polish

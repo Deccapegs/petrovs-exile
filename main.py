@@ -10,10 +10,33 @@ pygame.display.set_caption("waves")
 clock=pygame.time.Clock()
 def get_noise(noise,size=[10,10]):
 	return [[noise([x/size[0],y/size[1]]) for x in range(size[0])] for y in range(size[1])]
+def add_poses(p1,p2):
+	return (p1[0]+p2[0],p1[1]+p2[1])
 def get_dist(p1,p2):
 	return ((p1[0]-p2[0])**2+(p1[1]-p2[1])**2)**0.5
+def withoutscroll(pos):
+	return [pos[0]+game.scroll[0],pos[1]+game.scroll[1]]
 def withscroll(pos):
 	return [(pos[0]-game.scroll[0]),(pos[1]-game.scroll[1])]
+def make_surf(size,colour,alpha=0):
+	surf=pygame.Surface(size,alpha).convert_alpha() if alpha==pygame.SRCALPHA else pygame.Surface(size,alpha).convert()
+	surf.fill(colour)
+	return surf
+def make_circle_surf(radius,colour):
+	surf=pygame.Surface([radius*2,radius*2],pygame.SRCALPHA).convert_alpha()
+	surf.fill((0,0,0,0))
+	pygame.draw.circle(surf,colour,(radius,radius),radius)
+	return surf
+def make_hole(surf,hole_surf,pos=(0,0))->pygame.Surface:
+	mask=pygame.mask.from_surface(hole_surf)
+	hole=mask.to_surface(setcolor=(255,255,255),unsetcolor=(0,0,0)).convert()
+	hole.set_colorkey((0,0,0,0))
+	surf.blit(hole,pos,special_flags=pygame.BLEND_RGB_SUB)
+	return surf
+def mouse_get_pos():
+	x,y=pygame.mouse.get_pos()
+	scale=[screen_width/window.get_width(),screen_height/window.get_height()]
+	return [x*scale[0],y*scale[1]]
 class types():
 	def __init__(self):
 		self.grass=1
@@ -25,14 +48,20 @@ class c():
 		"w":False,
 		"a":False,
 		"s":False,
-		"d":False
+		"d":False,
+		"SPACE":False
 		}
 		self.otherkey={
 		"e":False
 		}
+		self.mouse={
+			0:[False,False]
+			}	
 	def update(self):
-		
 		key=pygame.key.get_pressed()
+		mouse=pygame.mouse.get_pressed()
+		self.mouse[0][1]=self.mouse[0][0]
+		self.mouse[0][0]=mouse[0]
 		for k in self.key:
 			self.key[k]=key[getattr(pygame,f"K_{k}")]
 		for k in self.otherkey:
@@ -46,8 +75,14 @@ def get_surf_from_sheet(sheet,sheetpos,size):
 imgs={
 	"tilesheet":pygame.image.load("imgs/tiles.png").convert_alpha(),
 	"text":pygame.image.load("imgs/text.png").convert_alpha(),
-	"player":pygame.image.load("imgs/petrov.png").convert_alpha()
+	"player":pygame.image.load("imgs/petrov.png").convert_alpha(),
+	"foliage_sheet":pygame.image.load("imgs/foliage.png").convert_alpha()
 }
+imgs.update({
+	"wood_bridge":get_surf_from_sheet(imgs["tilesheet"],(0,-96),(16,16)),
+	"small_rock":get_surf_from_sheet(imgs["foliage_sheet"],(0,-13),(14,8)),
+	"rock":get_surf_from_sheet(imgs["foliage_sheet"],(0,0),(22,13))
+	})
 class animation():
 	def __init__(self,image,size:list,delay:int,frame=0):
 		self.delay=delay
@@ -111,6 +146,34 @@ class text():
             textsurf.blit(img,(digit*letter_size[0],0))
         return textsurf
 text=text()
+class decr():
+	def __init__(self,img,pos,anchor="bottomleft",lists=[]):
+		self.pos=list(pos)
+		self.img=img
+		
+
+		try:
+			self.rect=self.img.get_rect()
+			self.size=self.img.get_size()
+		except AttributeError:
+			self.size=self.img.img.get_size()
+			self.rect=self.img.img.get_rect()
+		setattr(self.rect,anchor,self.pos)
+		self.y_order=self.rect.midbottom[1]
+		for list_ in lists:
+			list_.append(self)
+		
+	def update(self):
+		try:
+			self.img.update()
+		except AttributeError:
+			pass
+	def draw(self):
+
+		try:
+			screen.blit(self.img,withscroll((self.rect.topleft)))
+		except TypeError:
+			self.img.draw(withscroll((self.rect.topleft))) 
 class Tile():
 	def __init__(self,img,pos,sheetpos=(0,0),lists=[]):
 		self.img=get_surf_from_sheet(img,sheetpos,(16,16))
@@ -118,39 +181,11 @@ class Tile():
 		self.rect=self.img.get_rect(topleft=self.pos)
 		for list_ in lists:
 			list_.append(self)
+		self.mappos=[self.pos[0]/16,self.pos[1]/16]
 	def draw(self):
 		screen.blit(self.img,withscroll(self.pos))
 class World():
 	def __init__(self):
-		self.bignoise=Pnoise(octaves=12,seed=round(random.random()*10000000))
-		self.noise=Pnoise(octaves=35,seed=round(random.random()*10000000))
-		self.finenoise=Pnoise(octaves=100,seed=round(random.random()*10000000))
-		self.finemult=Pnoise(octaves=35,seed=round(random.random()*10000000))
-		self.size=[screen_width,screen_height]
-		self.limit=30
-		self.map=pygame.Surface(self.size,pygame.SRCALPHA).convert_alpha()
-		array=get_noise(self.noise,self.size)
-		array2=get_noise(self.finenoise,self.size)
-		array3=get_noise(self.finemult,self.size)
-		array4=get_noise(self.bignoise,self.size)
-		self.data=[[0 for x in range(self.size[0])] for y in range(self.size[1])]
-		self.tiles=[[None for x in range(self.size[0])] for y in range(self.size[1])]
-		self.tilelist=[]
-		#make map
-		for y,row in enumerate(array):
-			for x,val in enumerate(row):
-				#add=(max(max(self.size[0]/2+abs(x),self.size[1]/2+abs(y)),50+self.size[1]/2)-50-self.size[1]/2)/1000
-				add=max(get_dist((self.size[0]/4,self.size[1]/2),(x/2,y))-self.limit,0)/150
-				height=array4[y][x]*0.8+val+array2[y][x]*(array3[y][x]+0.7)+add
-				if y==0 or y>=self.size[1]-1:
-					continue
-				elif x==0 or x>=self.size[0]-1:
-					continue
-				if -0.2>height:
-					self.map.set_at((x,y),(10,220,80,255))
-					self.data[y][x]=t.grass
-				else:
-					self.data[y][x]=t.air
 		def check_sides(pos,val,sides=[None,None,None,None]):
 						bools=[True for _ in range(4)]
 						x=pos[0]
@@ -180,8 +215,48 @@ class World():
 									else:
 										bools[i]=True if side==False else False
 						return False if False in bools else True
+		self.bignoise=Pnoise(octaves=12,seed=round(random.random()*10000000))
+		self.noise=Pnoise(octaves=35,seed=round(random.random()*10000000))
+		self.finenoise=Pnoise(octaves=100,seed=round(random.random()*10000000))
+		self.finemult=Pnoise(octaves=35,seed=round(random.random()*10000000))
+		self.size=[screen_width,screen_height]
+		self.limit=50
+		self.map=pygame.Surface(self.size,pygame.SRCALPHA).convert_alpha()
+		self.cover=self.map.copy()
+		self.cover.fill((239,207,124))
+		self.cover.set_colorkey((0,0,0))
+		array=get_noise(self.noise,self.size)
+		array2=get_noise(self.finenoise,self.size)
+		array3=get_noise(self.finemult,self.size)
+		array4=get_noise(self.bignoise,self.size)
+		self.data=[[0 for x in range(self.size[0])] for y in range(self.size[1])]
+		self.tiles=[[None for x in range(self.size[0])] for y in range(self.size[1])]
+		self.tilelist=[]
+		self.derclist=[]
+		#make map
+		for y,row in enumerate(array):
+			for x,val in enumerate(row):
+				#add=(max(max(self.size[0]/2+abs(x),self.size[1]/2+abs(y)),50+self.size[1]/2)-50-self.size[1]/2)/1000
+				add=max(get_dist((self.size[0]/4,self.size[1]/1.7),(x/2,y))-self.limit,0)/150
+				height=array4[y][x]*0.8+val+array2[y][x]*(array3[y][x]+0.7)+add
+				if y==0 or y>=self.size[1]-1:
+					continue
+				elif x==0 or x>=self.size[0]-1:
+					continue
+				if -0.2>height:
+					
+					self.data[y][x]=t.grass
+				else:
+					self.data[y][x]=t.air
+		grass_pallete=((31,209,85),(29,196,101),(26,173,143))
+		dirt_pallete=((174,97,62),(150,83,78),(127,70,78))
 		for y,row in enumerate(self.data):
 			for x,val in enumerate(row):
+				if check_sides((x,y),t.grass,[None,None,False,None]) and val==t.grass:
+						self.map.set_at((x,y),random.choice(grass_pallete))
+				elif val==t.grass:
+					self.map.set_at((x,y),random.choice(dirt_pallete))
+
 				data=self.data
 				sheetpos=[0,0]
 				
@@ -215,18 +290,19 @@ class World():
 					sheetpos=[0,-80]
 				if val==t.grass:
 					
-					self.tiles[y][x]=Tile(imgs["tilesheet"],[x*16,y*16],sheetpos=sheetpos,lists=[self.tilelist])
-
-				
+					self.tiles[y][x]=Tile(imgs["tilesheet"],[x*16,y*16],sheetpos=sheetpos,lists=[self.tilelist])		
 		#place structs
-
-		init_poses=[[random.random()*self.size[0],random.random()*self.size[1]] for _ in range(50)]
+		rock_palletee=((103,98,85),(84,89,69),(119,101,86),(70,85,57))
+		rock_init_poses=[[math.floor(random.random()*self.size[0]),math.floor(random.random()*self.size[1])-1] for _ in range(50)]
 		def check_air(xy):
 			if xy[1]+1>self.size[1] or xy[1]-1<0:
 				return True
 			else:
-				return self.map.get_at((xy[0],xy[1]+1))[3]==0
-		for pos in init_poses:
+				try:
+					return self.map.get_at((xy[0],xy[1]+1))[3]==0
+				except IndexError:
+					return True
+		for pos in rock_init_poses:
 			if check_air(pos) or self.map.get_at(pos)[3]==255:
 				count=0
 				while check_air(pos) or self.map.get_at(pos)[3]==255:
@@ -240,37 +316,61 @@ class World():
 					if pos[1]>self.size[1] or pos[1]<0:
 
 						pos=[random.random()*self.size[0],random.random()*self.size[1]]
+				decr(imgs["small_rock"],[pos[0]*16+2,pos[1]*16+9],anchor="topleft",lists=[self.derclist])
+				self.map.set_at(pos,random.choice(rock_palletee))
 class Player():
 	def __init__(self):
 		self.img=animation(get_surf_from_sheet(imgs["player"],(-10,0),(40,13)),(10,13),12)
 		self.disimg=self.img.img.copy()
 		self.idle=get_surf_from_sheet(imgs["player"],(0,0),(10,13))
+		self.jump_img=get_surf_from_sheet(imgs["player"],(-50,0),(10,13))
 		self.pos=[game.world.size[0]*16/2,game.world.size[1]*16/2]
+		self.mappos=[0,0]
 		self.speed=[0,0]
-		self.fric=0.9
-		self.accel=0.2
-		self.jump_power=5
-		self.grav=0.3
+		self.fric=0.7
+		self.airrest=0.99
+		self.accel=0.5
+		self.jump_power=6
+		self.grav=0.25
 		self.moving=False
 		self.grounded=False
+		self.jumped=False
+		self.max_coyote=12
+		self.coyote=0
+
+		self.placing_bridge=False
+		self.bridge_pos=[0,0]
+
 		self.rect=self.img.img.get_rect()
 		self.ground_line=(self.rect.bottomleft,self.rect.bottomright)
-		self.bottom_tile=game.tiles[]
+		self.bottom_tile=game.world.tiles[math.floor(self.pos[1]/16)][math.floor(self.pos[0]/16)]
 		#self.rect=pygame.Rect(self.pos,50,50)
 	def update(self):
 		if c.key["s"]:
 			self.speed[1]+=self.accel
 		if c.key["d"]:
-			self.speed[0]+=self.accel
-		if c.key["w"]:
-			self.speed[1]-=self.accel
+			self.speed[0]+=self.accel if self.grounded else self.accel/5
+		if (c.key["w"] or c.key["SPACE"]) and (self.grounded or self.coyote<self.max_coyote) and (not self.jumped):
+			self.speed[1]-=self.jump_power
+			self.jumped=True
 		if c.key["a"]:
-			self.speed[0]-=self.accel
+			self.speed[0]-=self.accel if self.grounded else self.accel/5
 		self.moving=True if True in list(c.key.values()) else False
 		self.speed[1]+=self.grav
-		self.speed[0]*=self.fric
-		self.speed[1]*=self.fric
+		if self.grounded:
+			self.speed[0]*=self.fric
+			self.coyote=0
+		else:
+			self.speed[0]*=self.airrest
+			self.coyote+=1
+		self.bridge_pos=(math.floor((mouse_get_pos()[0]+game.scroll[0])/16)*16,math.floor((mouse_get_pos()[1]+game.scroll[1])/16)*16)
 
+		if self.placing_bridge:
+			if c.mouse[0]==[True,False]:
+				if game.world.tiles[int(self.bridge_pos[1]/16)][int(self.bridge_pos[0]/16)]==None:
+					
+					game.world.tiles[int(self.bridge_pos[1]/16)][int(self.bridge_pos[0]/16)]=Tile(imgs["wood_bridge"],self.bridge_pos,lists=[game.world.tilelist])
+		self.speed[1]*=1 if (c.key["w"] or c.key["SPACE"]) and self.speed[1]<=0 else self.airrest*0.92
 		collidelist=game.world.tilelist
 		self.pos[0]+=self.speed[0]
 		self.rect.x=self.pos[0]
@@ -291,8 +391,8 @@ class Player():
 
 		self.pos[1]+=self.speed[1]
 		self.rect.y=self.pos[1]
-		self.ground_line=(self.rect.bottomleft,self.rect.bottomright)
 		if self.rect.collidelist(collidelist)!=-1:
+
 			if self.speed[1]<0:
 				for i in range(math.ceil(abs(self.speed[1]))):
 					self.pos[1]+=1
@@ -305,30 +405,43 @@ class Player():
 					self.rect.y-=1
 					if self.rect.collidelist(collidelist)==-1:
 						break
+				self.jumped=False
+				self.grounded=True
+
+			else:
+				self.grounded=False
 			self.speed[1]=0
-		if self.moving:
+		else:
+			self.grounded=False
+		
+		if self.jumped:
+			self.disimg=self.jump_img
+		elif self.moving:
 			self.img.update()
 			self.disimg=self.img.img
 		else:
 			self.img.jumpto(0)
 			self.disimg=self.idle
-		
-		
+		self.mappos=[math.floor(self.pos[0]/16),math.floor(self.pos[1]/16)]
+
 		self.rect.topleft=self.pos
 	def draw(self):
-		screen.blit(self.disimg,withscroll(self.pos))
+		if self.placing_bridge:
+			screen.blit(imgs["wood_bridge"],withscroll(self.bridge_pos))
+		screen.blit(self.disimg,withscroll((self.pos[0]-1,self.pos[1])))
 		#pygame.draw.rect(screen,(255,0,0),self.rect)
 class Game():
 	def __init__(self):
 		global screen
-		screen.blit(text.render("loading..."))
+		screen.blit(text.render("loading..."),(1,1))
+		screen.blit(text.render("do not worry if it says 'not responding'"),(1,8))
 		screen=pygame.transform.scale(screen,window.get_size())
 		window.blit(screen,(0,0))
 		pygame.display.update()
-		self.world=World()
 		self.scroll=[0,0]
 		self.stage="play"
 	def initother(self):
+		self.world=World()
 		self.player=Player()
 
 
@@ -338,29 +451,46 @@ run= True
 while run==True:
 	screen=pygame.Surface((screen_width,screen_height)).convert()
 	screen.fill((50,110,220))
-	screen.blit(game.world.map)
 	c.update()
-	clock.tick(60)
+	clock.tick(1000)
 	for event in pygame.event.get():
 		if event.type == pygame.QUIT:
 			run = False
 		if event.type==pygame.KEYDOWN:
 			if event.key==pygame.K_e:
 				c.otherkey["e"]=True
-	game.player.update()
-	
-	game.scroll=[game.player.pos[0]-screen_width/2+5,game.player.pos[1]-screen_height/2+7]
-	game.player.draw()
-	for y in range(math.floor(game.scroll[1]/16)-5,math.floor(game.scroll[1]/16)+15):
-		
-		for x in range(math.floor(game.scroll[0]/16)-5,math.floor(game.scroll[0]/16)+30):
-			try:
-				tile=game.world.tiles[y][x]
-			except IndexError:
-				continue
-			if type(tile)==Tile:
-				tile.draw()
-	pygame.display.set_caption(f"scroll:{game.scroll} fps:{clock.get_fps()}")
+			if event.key==pygame.K_m:
+				game.stage="map" if game.stage=="play" else "play"
+			if event.key==pygame.K_q:
+				game.player.placing_bridge=True if game.player.placing_bridge==False else False
+
+	if game.stage=="play":
+		game.player.update()
+		game.world.cover=make_hole(game.world.cover,make_circle_surf(15,(255,255,255)),add_poses(game.player.mappos,(-15,-15)))
+		game.scroll=[game.player.pos[0]-screen_width/2+5,game.player.pos[1]-screen_height/2+7]
+		game.player.draw()
+		"""
+		for y in range(math.floor(game.scroll[1]/16)-5,math.floor(game.scroll[1]/16)+15):
+			
+			for x in range(math.floor(game.scroll[0]/16)-5,math.floor(game.scroll[0]/16)+30):
+				try:
+					tile=game.world.tiles[y][x]
+				except IndexError:
+					continue
+				if type(tile)==Tile:
+					tile.draw()
+		"""
+		for tile in game.world.tilelist:
+			tile.draw()
+		for d in game.world.derclist:
+			d.draw()
+
+	elif game.stage=="map":
+		screen.blit(game.world.map,(0,0))
+		#screen.blit(game.world.cover,(0,0))
+		screen.blit(make_surf((3,3),(255,0,0)),[game.player.mappos[0]-1,game.player.mappos[1]-1])
+
+	pygame.display.set_caption(f" fps:{clock.get_fps()}")
 	screen=pygame.transform.scale(screen,window.get_size())
 	window.blit(screen,(0,0))
 	pygame.display.update()
