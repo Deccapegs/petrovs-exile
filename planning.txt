@@ -4,16 +4,17 @@
 -bhopping
 -make minimap
 -make player building
-
 -make strucs spawn
 -make stone tiles
+
+-make sin wave vfx
+-make gun
+-make rocket jumping
+
 -make resorce gathering
 -make inventory
 -make gems
--make sin wave vfx
 -make mining
--make gun
--make rocket jumping
 -make paralax
 -make 3 enimes and boss
 -make npcs
@@ -21,3 +22,4 @@
 -make story
 -make menu
 -make polish
+-grass variants

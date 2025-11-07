@@ -40,6 +40,7 @@ def mouse_get_pos():
 class types():
 	def __init__(self):
 		self.grass=1
+		self.rock_tile=2
 		self.air=0
 t=types()
 class c():
@@ -81,8 +82,35 @@ imgs={
 imgs.update({
 	"wood_bridge":get_surf_from_sheet(imgs["tilesheet"],(0,-96),(16,16)),
 	"small_rock":get_surf_from_sheet(imgs["foliage_sheet"],(0,-13),(14,8)),
-	"rock":get_surf_from_sheet(imgs["foliage_sheet"],(0,0),(22,13))
+	"rock":get_surf_from_sheet(imgs["foliage_sheet"],(0,0),(22,13)),
+	"rock_sheet":get_surf_from_sheet(imgs["tilesheet"],(-48,0),(48,96)),
+	"small_tree":get_surf_from_sheet(imgs["foliage_sheet"],(-22,0),(11,12))
 	})
+class sinfx():
+	def __init__(self,height,frequency,length,delay,colour,thickness=2,angle=45):
+		self.height=height
+		self.frequency=frequency
+		self.length=length
+		self.speed=delay
+		self.colour=colour
+		size=(length,height*3)
+		points=[]
+		self.imgs=[]
+		for offset in range(math.ceil(1/frequency*math.pi*2)):
+			points=[]
+			img=pygame.Surface(size,pygame.SRCALPHA).convert_alpha()
+			img.fill((0,0,0,0))
+			for x in range(math.ceil(size[0])):
+				points.append((x,math.sin((x+offset)*frequency)*height+height))
+
+			pygame.draw.lines(img, colour, False, points, thickness)
+			img=pygame.transform.rotate(img,angle)
+			self.imgs.append(img)
+		self.img=animation(self.imgs,self.imgs[0].get_size(),delay)
+	def update(self):
+		self.img.update()
+	def draw(self,pos):
+		self.img.draw((0,0))
 class animation():
 	def __init__(self,image,size:list,delay:int,frame=0):
 		self.delay=delay
@@ -119,7 +147,7 @@ class animation():
 				self.frame+=1
 				self.frame%=self.frames_amount
 				self.img.fill((0,0,0,0))
-				self.img.blit(self.frames[frame],(0,0))			
+				self.img.blit(self.frames[self.frame],(0,0))			
 	def draw(self,pos=(0,0)):
 		screen.blit(self.img,pos)
 	def jumpto(self,frame):
@@ -186,39 +214,40 @@ class Tile():
 		screen.blit(self.img,withscroll(self.pos))
 class World():
 	def __init__(self):
-		def check_sides(pos,val,sides=[None,None,None,None]):
-						bools=[True for _ in range(4)]
-						x=pos[0]
-						y=pos[1]
-						for i,side in enumerate(sides):
-							if side==None:
-								bools[i]=True
-							else:
-								if i==0:
-									if self.data[y][x-1]==val:
-										bools[i]=True if side==True else False
-									else:
-										bools[i]=True if side==False else False
-								elif i==1:
-									if self.data[y][x+1]==val:
-										bools[i]=True if side==True else False
-									else:
-										bools[i]=True if side==False else False
-								elif i==2:
-									if self.data[y-1][x]==val:
-										bools[i]=True if side==True else False
-									else:
-										bools[i]=True if side==False else False
-								elif i==3:
-									if self.data[y+1][x]==val:
-										bools[i]=True if side==True else False
-									else:
-										bools[i]=True if side==False else False
-						return False if False in bools else True
+		def check_sides(pos,val=1,sides=[None,None,None,None]):
+			bools=[True for _ in range(4)]
+			x=pos[0]
+			y=pos[1]
+			for i,side in enumerate(sides):
+				if side==None:
+					bools[i]=True
+				else:
+					if i==0:
+						if self.data[y][x-1]!=t.air:
+							bools[i]=True if side==True else False
+						else:
+							bools[i]=True if side==False else False
+					elif i==1:
+						if self.data[y][x+1]!=t.air:
+							bools[i]=True if side==True else False
+						else:
+							bools[i]=True if side==False else False
+					elif i==2:
+						if self.data[y-1][x]!=t.air:
+							bools[i]=True if side==True else False
+						else:
+							bools[i]=True if side==False else False
+					elif i==3:
+						if self.data[y+1][x]!=t.air:
+							bools[i]=True if side==True else False
+						else:
+							bools[i]=True if side==False else False
+			return False if False in bools else True
 		self.bignoise=Pnoise(octaves=12,seed=round(random.random()*10000000))
 		self.noise=Pnoise(octaves=35,seed=round(random.random()*10000000))
 		self.finenoise=Pnoise(octaves=100,seed=round(random.random()*10000000))
 		self.finemult=Pnoise(octaves=35,seed=round(random.random()*10000000))
+		self.rock_noise=Pnoise(octaves=12,seed=round(random.random()*10000000))
 		self.size=[screen_width,screen_height]
 		self.limit=50
 		self.map=pygame.Surface(self.size,pygame.SRCALPHA).convert_alpha()
@@ -229,6 +258,7 @@ class World():
 		array2=get_noise(self.finenoise,self.size)
 		array3=get_noise(self.finemult,self.size)
 		array4=get_noise(self.bignoise,self.size)
+		rock_array=get_noise(self.rock_noise,self.size)
 		self.data=[[0 for x in range(self.size[0])] for y in range(self.size[1])]
 		self.tiles=[[None for x in range(self.size[0])] for y in range(self.size[1])]
 		self.tilelist=[]
@@ -244,37 +274,47 @@ class World():
 				elif x==0 or x>=self.size[0]-1:
 					continue
 				if -0.2>height:
-					
-					self.data[y][x]=t.grass
+					if -0.3>rock_array[y][x]:
+						self.data[y][x]=t.rock_tile
+					else:
+						self.data[y][x]=t.grass
 				else:
 					self.data[y][x]=t.air
 		grass_pallete=((31,209,85),(29,196,101),(26,173,143))
 		dirt_pallete=((174,97,62),(150,83,78),(127,70,78))
+		rock_tile_pallete=((145,145,159),(137,133,125))
+		top_rock_pallete=((168,167,131),(137,133,125))
 		for y,row in enumerate(self.data):
 			for x,val in enumerate(row):
-				if check_sides((x,y),t.grass,[None,None,False,None]) and val==t.grass:
+				if check_sides((x,y),t.grass,[None,None,False,None]) and val in (t.grass,t.rock_tile):
+					if val==t.grass:
 						self.map.set_at((x,y),random.choice(grass_pallete))
+					elif val==t.rock_tile:
+						self.map.set_at((x,y),random.choice(top_rock_pallete))
+
 				elif val==t.grass:
 					self.map.set_at((x,y),random.choice(dirt_pallete))
+				elif val==t.rock_tile:
+					self.map.set_at((x,y),random.choice(rock_tile_pallete))
 
 				data=self.data
 				sheetpos=[0,0]
 				
 				if val==t.air:
 					continue
-				if data[y][x-1]==val and data[y][x+1]==val:					
+				if data[y][x-1]!=t.air and data[y][x+1]!=t.air:					
 					sheetpos[0]=-16
-				elif data[y][x+1]==val:
+				elif data[y][x+1]!=t.air:
 					sheetpos[0]=0
-				elif data[y][x-1]==val:
+				elif data[y][x-1]!=t.air:
 					sheetpos[0]=-32
-				if data[y-1][x]==val and data[y+1][x]==val:
+				if data[y-1][x]!=t.air and data[y+1][x]!=t.air:
 					sheetpos[1]=-16
-				elif data[y+1][x]==val:
+				elif data[y+1][x]!=t.air:
 					sheetpos[1]=0
-				elif data[y-1][x]==val:
+				elif data[y-1][x]!=t.air:
 					sheetpos[1]=-32
-				if data[y][x-1]!=val and data[y][x+1]!=val and data[y-1][x]!=val and data[y+1][x]!=val:
+				if data[y][x-1]==t.air and data[y][x+1]==t.air and data[y-1][x]==t.air and data[y+1][x]==t.air:
 					sheetpos=[0,-48]
 				elif check_sides((x,y),val,[False,False,False,True]):
 					sheetpos=[-32,-48]
@@ -290,10 +330,12 @@ class World():
 					sheetpos=[0,-80]
 				if val==t.grass:
 					
-					self.tiles[y][x]=Tile(imgs["tilesheet"],[x*16,y*16],sheetpos=sheetpos,lists=[self.tilelist])		
+					self.tiles[y][x]=Tile(imgs["tilesheet"],[x*16,y*16],sheetpos=sheetpos,lists=[self.tilelist])	
+				if val==t.rock_tile:
+					self.tiles[y][x]=Tile(imgs["rock_sheet"],[x*16,y*16],sheetpos=sheetpos,lists=[self.tilelist])	
 		#place structs
 		rock_palletee=((103,98,85),(84,89,69),(119,101,86),(70,85,57))
-		rock_init_poses=[[math.floor(random.random()*self.size[0]),math.floor(random.random()*self.size[1])-1] for _ in range(50)]
+		rock_init_poses=[[math.floor(random.random()*self.size[0]),math.floor(random.random()*self.size[1])] for _ in range(150)]
 		def check_air(xy):
 			if xy[1]+1>self.size[1] or xy[1]-1<0:
 				return True
@@ -316,8 +358,26 @@ class World():
 					if pos[1]>self.size[1] or pos[1]<0:
 
 						pos=[random.random()*self.size[0],random.random()*self.size[1]]
-				decr(imgs["small_rock"],[pos[0]*16+2,pos[1]*16+9],anchor="topleft",lists=[self.derclist])
+				if random.random()<=0.5:
+
+					decr(imgs["small_rock"],[pos[0]*16+2,pos[1]*16+10],anchor="topleft",lists=[self.derclist])
+				else:
+					decr(imgs["rock"],[pos[0]*16-3,pos[1]*16+5],anchor="topleft",lists=[self.derclist])
+
 				self.map.set_at(pos,random.choice(rock_palletee))
+class bullet():
+	def __init__(self,pos,speed,angle,wave,parent=None):
+		self.pos=pos
+		self.speed=speed
+		self.angle=math.radians(angle)
+		self.wave=wave
+		mask_surf=pygame.Surface(wave.size,pygame.SRCALPHA).convert_alpha()
+		mask_surf=pygame.transform.rotate(mask_surf,angle)
+		self.rect=mask_surf.get_rect(center=self.pos)
+		self.mask=pygame.mask.from_surface(mask_surf)
+		self.pop_timer=0
+		self.parent=parent
+
 class Player():
 	def __init__(self):
 		self.img=animation(get_surf_from_sheet(imgs["player"],(-10,0),(40,13)),(10,13),12)
@@ -367,9 +427,14 @@ class Player():
 
 		if self.placing_bridge:
 			if c.mouse[0]==[True,False]:
-				if game.world.tiles[int(self.bridge_pos[1]/16)][int(self.bridge_pos[0]/16)]==None:
-					
-					game.world.tiles[int(self.bridge_pos[1]/16)][int(self.bridge_pos[0]/16)]=Tile(imgs["wood_bridge"],self.bridge_pos,lists=[game.world.tilelist])
+				try:
+					game.world.tiles[int(self.bridge_pos[1]/16)][int(self.bridge_pos[0]/16)]
+				except IndexError:
+					pass
+				else:
+					if game.world.tiles[int(self.bridge_pos[1]/16)][int(self.bridge_pos[0]/16)]==None:
+						
+						game.world.tiles[int(self.bridge_pos[1]/16)][int(self.bridge_pos[0]/16)]=Tile(imgs["wood_bridge"],self.bridge_pos,lists=[game.world.tilelist])
 		self.speed[1]*=1 if (c.key["w"] or c.key["SPACE"]) and self.speed[1]<=0 else self.airrest*0.92
 		collidelist=game.world.tilelist
 		self.pos[0]+=self.speed[0]
@@ -443,8 +508,7 @@ class Game():
 	def initother(self):
 		self.world=World()
 		self.player=Player()
-
-
+testsin=sinfx(7,0.5,32,3,(255,0,255))
 game=Game()
 game.initother()
 run= True
@@ -452,7 +516,7 @@ while run==True:
 	screen=pygame.Surface((screen_width,screen_height)).convert()
 	screen.fill((50,110,220))
 	c.update()
-	clock.tick(1000)
+	clock.tick(60)
 	for event in pygame.event.get():
 		if event.type == pygame.QUIT:
 			run = False
@@ -469,7 +533,8 @@ while run==True:
 		game.world.cover=make_hole(game.world.cover,make_circle_surf(15,(255,255,255)),add_poses(game.player.mappos,(-15,-15)))
 		game.scroll=[game.player.pos[0]-screen_width/2+5,game.player.pos[1]-screen_height/2+7]
 		game.player.draw()
-		"""
+		for d in game.world.derclist:
+			d.draw()
 		for y in range(math.floor(game.scroll[1]/16)-5,math.floor(game.scroll[1]/16)+15):
 			
 			for x in range(math.floor(game.scroll[0]/16)-5,math.floor(game.scroll[0]/16)+30):
@@ -482,12 +547,12 @@ while run==True:
 		"""
 		for tile in game.world.tilelist:
 			tile.draw()
-		for d in game.world.derclist:
-			d.draw()
-
+		"""
+		testsin.update()
+		testsin.draw((0,0))
 	elif game.stage=="map":
 		screen.blit(game.world.map,(0,0))
-		#screen.blit(game.world.cover,(0,0))
+		screen.blit(game.world.cover,(0,0))
 		screen.blit(make_surf((3,3),(255,0,0)),[game.player.mappos[0]-1,game.player.mappos[1]-1])
 
 	pygame.display.set_caption(f" fps:{clock.get_fps()}")
