@@ -87,13 +87,20 @@ imgs.update({
 	"small_tree":get_surf_from_sheet(imgs["foliage_sheet"],(-22,0),(11,12))
 	})
 class sinfx():
-	def __init__(self,height,frequency,length,delay,colour,thickness=2,angle=45):
+	def __init__(self,height,frequency,length,delay,colour,thickness=2,angle=0,cached_wave=None):
 		self.height=height
 		self.frequency=frequency
 		self.length=length
 		self.speed=delay
 		self.colour=colour
-		size=(length,height*3)
+		self.angle=angle
+		size=(length,height*2)
+		self.size=size
+		if  cached_wave!=None:
+			self.imgs=cached_wave.imgs
+			self.img=animation(self.imgs,self.imgs[0].get_size(),delay)
+
+			return None
 		points=[]
 		self.imgs=[]
 		for offset in range(math.ceil(1/frequency*math.pi*2)):
@@ -110,7 +117,8 @@ class sinfx():
 	def update(self):
 		self.img.update()
 	def draw(self,pos):
-		self.img.draw((0,0))
+		self.img.draw(pos)
+
 class animation():
 	def __init__(self,image,size:list,delay:int,frame=0):
 		self.delay=delay
@@ -365,18 +373,55 @@ class World():
 					decr(imgs["rock"],[pos[0]*16-3,pos[1]*16+5],anchor="topleft",lists=[self.derclist])
 
 				self.map.set_at(pos,random.choice(rock_palletee))
-class bullet():
+class Bullet():
 	def __init__(self,pos,speed,angle,wave,parent=None):
-		self.pos=pos
-		self.speed=speed
+		self.pos=list(pos)
+		self.speed=int(speed)
 		self.angle=math.radians(angle)
 		self.wave=wave
 		mask_surf=pygame.Surface(wave.size,pygame.SRCALPHA).convert_alpha()
 		mask_surf=pygame.transform.rotate(mask_surf,angle)
+		self.mask_surf=mask_surf
 		self.rect=mask_surf.get_rect(center=self.pos)
 		self.mask=pygame.mask.from_surface(mask_surf)
 		self.pop_timer=0
+		game.bullets.append(self)
 		self.parent=parent
+	def update(self):
+		self.pos[0]+=math.cos(self.angle)*self.speed
+		self.pos[1]+=-math.sin(self.angle)*self.speed
+		self.rect=self.mask_surf.get_rect(center=self.pos)
+		self.wave.update()
+		self.pop_timer+=1
+		if self.pop_timer>360:
+			self.pop()
+			del self
+			return
+	def draw(self):
+		#pygame.draw.rect(screen,(255,0,255),self.rect)
+		self.wave.draw(withscroll(self.rect.topleft))
+	def pop(self):
+		game.remove_bullets.append(self)
+class Expolsion():
+	def __init__(self,pos,radius,recoil=6,ripple=None):
+		self.ripple=ripple
+		self.radius=radius
+		self.pos=pos
+		self.recoil=recoil
+		self.active=True
+	def update(self):
+		"update ripple vfx"
+		if not self.active:
+			return
+		self.active=False
+	def draw(self):
+		pass
+def get_wave_angle(angle):
+	return math.floor(angle/22.5+0.5)*22.5
+def get_mouse_player_angle():
+	point=-(mouse_get_pos()[1]-screen_height/2+5),mouse_get_pos()[0]-screen_width/2+7
+	angle=math.degrees(math.atan2(*point))
+	return angle
 
 class Player():
 	def __init__(self):
@@ -401,11 +446,18 @@ class Player():
 		self.placing_bridge=False
 		self.bridge_pos=[0,0]
 
+		self.gun_timer=0
+		self.gun_interval=20
+		self.recoil=2
+
 		self.rect=self.img.img.get_rect()
 		self.ground_line=(self.rect.bottomleft,self.rect.bottomright)
 		self.bottom_tile=game.world.tiles[math.floor(self.pos[1]/16)][math.floor(self.pos[0]/16)]
 		#self.rect=pygame.Rect(self.pos,50,50)
 	def update(self):
+		for i in range(2):
+			if not(-12*16<self.pos[i]<game.world.size[i]*16+12*16):
+				self.pos=[game.world.size[0]*16/2,game.world.size[1]*16/2]
 		if c.key["s"]:
 			self.speed[1]+=self.accel
 		if c.key["d"]:
@@ -415,7 +467,7 @@ class Player():
 			self.jumped=True
 		if c.key["a"]:
 			self.speed[0]-=self.accel if self.grounded else self.accel/5
-		self.moving=True if True in list(c.key.values()) else False
+		self.moving=True if True in (c.key["a"],c.key["d"]) else False
 		self.speed[1]+=self.grav
 		if self.grounded:
 			self.speed[0]*=self.fric
@@ -490,6 +542,23 @@ class Player():
 		self.mappos=[math.floor(self.pos[0]/16),math.floor(self.pos[1]/16)]
 
 		self.rect.topleft=self.pos
+		self.update_gun()
+	def update_gun(self):
+		if self.placing_bridge:
+			self.gun_timer=19
+			return
+		if c.mouse[0][0]==True:
+			if self.gun_timer==self.gun_interval:
+				self.gun_timer=0
+				angle=get_mouse_player_angle()
+				Bullet(game.player.pos,4,angle,sinfx(7,1,32,1,(255,0,255),cached_wave=game.cached_player_bullets[get_wave_angle(angle)]))
+				self.speed[0]-=math.cos(math.radians(angle))*self.recoil
+				self.speed[1]+=math.sin(math.radians(angle))*self.recoil
+			self.gun_timer+=1
+
+		else:
+			self.gun_timer=19
+
 	def draw(self):
 		if self.placing_bridge:
 			screen.blit(imgs["wood_bridge"],withscroll(self.bridge_pos))
@@ -503,18 +572,21 @@ class Game():
 		screen=pygame.transform.scale(screen,window.get_size())
 		window.blit(screen,(0,0))
 		pygame.display.update()
+		self.bullets=[]
+		self.remove_bullets=[]
+		self.cached_player_bullets={i*22.5:sinfx(5.5,0.3,32,3 ,(60,200,220),angle=i*22.5) for i in range(-16,16)}
 		self.scroll=[0,0]
 		self.stage="play"
 	def initother(self):
 		self.world=World()
 		self.player=Player()
-testsin=sinfx(7,0.5,32,3,(255,0,255))
+testsin=sinfx(5.5,0.3,32,3 ,(60,200,220),angle=45)
 game=Game()
 game.initother()
 run= True
 while run==True:
 	screen=pygame.Surface((screen_width,screen_height)).convert()
-	screen.fill((50,110,220))
+	screen.fill((40,100,230))
 	c.update()
 	clock.tick(60)
 	for event in pygame.event.get():
@@ -532,6 +604,9 @@ while run==True:
 		game.player.update()
 		game.world.cover=make_hole(game.world.cover,make_circle_surf(15,(255,255,255)),add_poses(game.player.mappos,(-15,-15)))
 		game.scroll=[game.player.pos[0]-screen_width/2+5,game.player.pos[1]-screen_height/2+7]
+		for bullet in game.bullets:
+			bullet.update()
+
 		game.player.draw()
 		for d in game.world.derclist:
 			d.draw()
@@ -548,8 +623,17 @@ while run==True:
 		for tile in game.world.tilelist:
 			tile.draw()
 		"""
-		testsin.update()
-		testsin.draw((0,0))
+		#testsin.update()
+		#testsin.draw((0,0))
+
+		for bullet in game.bullets:
+			bullet.draw()
+		for bullet in game.remove_bullets:
+			try:
+				game.bullets.remove(bullet)
+			except ValueError:
+				pass
+		game.remove_bullets=[]
 	elif game.stage=="map":
 		screen.blit(game.world.map,(0,0))
 		screen.blit(game.world.cover,(0,0))

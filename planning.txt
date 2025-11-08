@@ -6,9 +6,10 @@
 -make player building
 -make strucs spawn
 -make stone tiles
-
 -make sin wave vfx
+-make bullets
 -make gun
+
 -make rocket jumping
 
 -make resorce gathering
@@ -22,4 +23,5 @@
 -make story
 -make menu
 -make polish
+-make ripple wave vfx
 -grass variants
