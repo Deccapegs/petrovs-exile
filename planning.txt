@@ -9,19 +9,23 @@
 -make sin wave vfx
 -make bullets
 -make gun
-
--make rocket jumping
-
+-make rocket jumping (nevermind)
 -make resorce gathering
+
 -make inventory
+
 -make gems
--make mining
+-make mining/digging
 -make paralax
 -make 3 enimes and boss
--make npcs
+-make npcs/crafting
+-make gem map
 -make chests
 -make story
 -make menu
 -make polish
 -make ripple wave vfx
+
+if time
 -grass variants
+-tree variants
