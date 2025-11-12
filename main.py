@@ -45,11 +45,29 @@ def remove_list(list_,rlist):
 		except ValueError:
 			pass
 	return list_
+class Sin():
+	def __init__(self,frequency,height,start=0):
+		self.frequency=frequency
+		self.height=height
+		self.val=0
+		self.start=start
+		self.timer=start
+		self.reset_=1/frequency*math.pi*2
+	def update(self):
+		self.timer+=self.frequency
+		self.timer%=self.reset_
+		self.val=math.sin(self.timer)*self.height
+	def reset(self):
+		self.timer=self.start
 class types():
 	def __init__(self):
 		self.grass=1
 		self.rock_tile=2
 		self.air=0
+		self.purple=0
+		self.yellow=1
+		self.red=2
+		self.blue=3
 t=types()
 class c():
 	def __init__(self):
@@ -86,7 +104,8 @@ imgs={
 	"text":pygame.image.load("imgs/text.png").convert_alpha(),
 	"player":pygame.image.load("imgs/petrov.png").convert_alpha(),
 	"foliage_sheet":pygame.image.load("imgs/foliage.png").convert_alpha(),
-	"items":pygame.image.load("imgs/items.png").convert_alpha()
+	"items":pygame.image.load("imgs/items.png").convert_alpha(),
+	"gem_sheet":pygame.image.load("imgs/gems.png").convert_alpha()
 }
 imgs.update({
 	"wood_bridge":get_surf_from_sheet(imgs["tilesheet"],(0,-96),(16,16)),
@@ -97,7 +116,13 @@ imgs.update({
 	"tree":get_surf_from_sheet(imgs["foliage_sheet"],(0,-21),(51,43)),
 	"small_tree_2":get_surf_from_sheet(imgs["foliage_sheet"],(-58,0),(13,12)),
 	"wood":get_surf_from_sheet(imgs["items"],(0,0),(15,13)),
-	"rock":get_surf_from_sheet(imgs["items"],(0,-13),(10,10))
+	"rock":get_surf_from_sheet(imgs["items"],(0,-13),(10,10)),
+	"gems":{
+	t.purple:get_surf_from_sheet(imgs["gem_sheet"],(0,0),(16,23)),
+	t.yellow:get_surf_from_sheet(imgs["gem_sheet"],(-16,0),(16,32)),
+	t.red:get_surf_from_sheet(imgs["gem_sheet"],(-32,0),(16,23)),
+	t.blue:get_surf_from_sheet(imgs["gem_sheet"],(-48,0),(16,32)),
+	}
 	})
 class sinfx():
 	def __init__(self,height,frequency,length,delay,colour,thickness=2,angle=0,cached_wave=None):
@@ -241,14 +266,45 @@ class Tile():
 		self.img=get_surf_from_sheet(img,sheetpos,(16,16))
 		self.pos=pos
 		self.rect=self.img.get_rect(topleft=self.pos)
+		self.active=True
 		for list_ in lists:
 			list_.append(self)
 		self.mappos=[self.pos[0]/16,self.pos[1]/16]
+	def update(self):
+		if self.active==False:
+			self.img.set_alpha(64)
+		else:
+			self.img.set_alpha(255)
 	def draw(self):
 		screen.blit(self.img,withscroll(self.pos))
 class Gem():
-	def __init__(self,img,pos,type_):
-		pass
+	def __init__(self,img,pos,type_=t.purple,lists=[],gem_surf=None):
+		self.img=img
+		self.pos=list(pos)
+		self.type=type_
+		self.rect=img.get_rect(topleft=self.pos)
+		self.gem_surf=gem_surf
+		self.sin=Sin(1/60,6)
+		for list_ in lists:
+			list_.append(self)
+		self.lists=lists
+	def update(self):
+		self.sin.update()
+		if game.player.rect.colliderect(self.rect):
+			Notice("one step closer to freedom...")
+			game.player.increase_gem_count()
+			self.pop()
+			return
+	def pop(self):
+		for list_ in self.lists:
+			try:
+				list_.remove(self)
+			except ValueError:
+				pass
+		del self
+		return
+	def draw(self):
+		screen.blit(self.img,withscroll((self.pos[0],self.pos[1]+math.floor(self.sin.val))))
 class World():
 	def __init__(self):
 		def check_sides(pos,val=1,sides=[None,None,None,None]):
@@ -332,6 +388,8 @@ class World():
 		self.tiles=[[None for x in range(self.size[0])] for y in range(self.size[1])]
 		self.tilelist=[]
 		self.derclist=[]
+		self.gemlist=[]
+		self.gem_surfs=[]
 		#make map
 		for y,row in enumerate(array):
 			for x,val in enumerate(row):
@@ -435,6 +493,8 @@ class World():
 					decr(imgs["rock_derc"],[pos[0]*16-3,pos[1]*16+5],anchor="topleft",lists=[self.derclist],items={"rock":3})
 
 				self.map.set_at(pos,random.choice(rock_palletee))
+		num=0
+		yotal=0
 		for pos in tree_init_poses:
 			if 0<tree_array[pos[1]][pos[0]]<0.2:
 				continue
@@ -463,8 +523,13 @@ class World():
 							for i in range(-1,2):
 								if data[pos[1]+1][pos[0]-i]==t.grass:
 									count+=1
+							
 							if count==3:
+								num+=1
 								break
+							else:
+								pos=[math.floor(random.random()*self.size[0]),math.floor(random.random()*self.size[1])]
+
 					except IndexError:
 						pass
 
@@ -475,7 +540,33 @@ class World():
 				elif tree_type==1:
 					decr(imgs["small_tree_2"],[pos[0]*16+3,pos[1]*16+6],anchor="topleft",lists=[self.derclist],items={"wood":3})
 				elif tree_type==2:
-					decr(imgs["tree"],[pos[0]*16-7,pos[1]*16-24],anchor="topleft",lists=[self.derclist],health=10,items={"wood":6})
+					yotal+=1
+					decr(imgs["tree"],[pos[0]*16-24,pos[1]*16-24],anchor="topleft",lists=[self.derclist],health=10,items={"wood":6})
+		print(num,yotal)
+		gem_points=[]
+		count=0
+		while len(gem_points)<4:
+			point=[math.floor(random.random()*16*self.size[0]),math.floor(random.random()*16*self.size[1])]
+			
+			for other_point in gem_points:
+				if get_dist(point,other_point)<32*16:
+					break
+			else:
+			
+				gem_points.append(point)
+			if count>4000:
+				gem_points.append(point)
+
+				break
+			count+=1
+
+
+		for i,point in enumerate(gem_points):
+			mappos=[point[0]/16,point[1]/16]
+			surf=[mappos[0]-1,mappos[1]-1],make_surf((3,3),(255,0,255))
+			gem=Gem(imgs["gems"][i],point,lists=[self.gemlist],gem_surf=surf)
+			self.gem_surfs.append(surf)
+
 
 			"""
 			for _ in range(1000):
@@ -508,7 +599,7 @@ class Bullet():
 		if self.pop_timer>360:
 			self.pop()
 			return
-		tiles=self.rect.collidelistall(game.loaded_tiles)
+		tiles=self.rect.collidelistall(game.collide_tiles)
 		const=10
 		line=[
 		[math.cos(self.angle)*const+self.pos[0],-math.sin(self.angle)*const+self.pos[1]],
@@ -580,6 +671,7 @@ class Player():
 		self.jumped=False
 		self.max_coyote=12
 		self.coyote=0
+		self.hovering_tile=False
 
 		self.placing_bridge=False
 		self.bridge_pos=[0,0]
@@ -588,6 +680,7 @@ class Player():
 		self.gun_interval=20
 		self.recoil=2
 
+		self.gem_count=0
 		self.inventory={
 		"wood":0,
 		"rock":0
@@ -598,6 +691,7 @@ class Player():
 		self.bottom_tile=game.world.tiles[math.floor(self.pos[1]/16)][math.floor(self.pos[0]/16)]
 		#self.rect=pygame.Rect(self.pos,50,50)
 	def update(self):
+		self.mappos=[math.floor(self.pos[0]/16),math.floor(self.pos[1]/16)]
 		for i in range(2):
 			if not(-12*16<self.pos[i]<game.world.size[i]*16+12*16):
 				self.pos=[game.world.size[0]*16/2,game.world.size[1]*16/2]
@@ -621,17 +715,20 @@ class Player():
 		self.bridge_pos=(math.floor((mouse_get_pos()[0]+game.scroll[0])/16)*16,math.floor((mouse_get_pos()[1]+game.scroll[1])/16)*16)
 
 		if self.placing_bridge:
-			if c.mouse[0]==[True,False]:
-				try:
-					game.world.tiles[int(self.bridge_pos[1]/16)][int(self.bridge_pos[0]/16)]
-				except IndexError:
-					pass
+			try:
+				tile=game.world.tiles[int(self.bridge_pos[1]/16)][int(self.bridge_pos[0]/16)]
+			except IndexError:
+				pass
+			self.hovering_tile=False if tile==None else True
+			if c.mouse[0]==[False,True]:
+				
+				if tile==None:
+					
+					game.world.tiles[int(self.bridge_pos[1]/16)][int(self.bridge_pos[0]/16)]=Tile(imgs["wood_bridge"],self.bridge_pos,lists=[game.world.tilelist])
 				else:
-					if game.world.tiles[int(self.bridge_pos[1]/16)][int(self.bridge_pos[0]/16)]==None:
-						
-						game.world.tiles[int(self.bridge_pos[1]/16)][int(self.bridge_pos[0]/16)]=Tile(imgs["wood_bridge"],self.bridge_pos,lists=[game.world.tilelist])
+					tile.active=False if tile.active==True else True
 		self.speed[1]*=1 if (c.key["w"] or c.key["SPACE"]) and self.speed[1]<=0 else self.airrest*0.92
-		collidelist=game.world.tilelist
+		collidelist=game.collide_tiles
 		self.pos[0]+=self.speed[0]
 		self.rect.x=self.pos[0]
 		if self.rect.collidelist(collidelist)!=-1:
@@ -682,7 +779,6 @@ class Player():
 		else:
 			self.img.jumpto(0)
 			self.disimg=self.idle
-		self.mappos=[math.floor(self.pos[0]/16),math.floor(self.pos[1]/16)]
 
 		self.rect.topleft=self.pos
 		self.update_gun()
@@ -708,8 +804,10 @@ class Player():
 		self.speed[1]+=math.sin(angle)*recoil
 	def add_inventory(self,item,amount):
 		self.inventory[item]+=amount
+	def increase_gem_count(self):
+		self.gem_count+=1
 	def draw(self):
-		if self.placing_bridge:
+		if self.placing_bridge and not self.hovering_tile:
 			screen.blit(imgs["wood_bridge"],withscroll(self.bridge_pos))
 		screen.blit(self.disimg,withscroll((self.pos[0]-1,self.pos[1])))
 		#pygame.draw.rect(screen,(255,0,0),self.rect)
@@ -775,6 +873,7 @@ class Game():
 		self.cached_player_bullets={i*22.5:sinfx(5.5,0.3,32,3 ,(60,200,220),angle=i*22.5) for i in range(-16,16)}
 		self.scroll=[0,0]
 		self.loaded_tiles=[]
+		self.collide_tiles=[]
 		self.stage="play"
 		self.notice_board=Notification_Center()
 	def initother(self):
@@ -815,9 +914,12 @@ while run==True:
 			expolsion.update()
 		for decr in game.world.derclist:
 			decr.update()
-		for d in game.world.derclist:
-			d.draw()
+		for gem in game.world.gemlist:
+			gem.update()
+		
+		
 		game.loaded_tiles=[]
+		game.collide_tiles=[]
 		for y in range(math.floor(game.scroll[1]/16)-5,math.floor(game.scroll[1]/16)+15):
 			
 			for x in range(math.floor(game.scroll[0]/16)-5,math.floor(game.scroll[0]/16)+30):
@@ -828,11 +930,18 @@ while run==True:
 
 				if type(tile)==Tile:
 					game.loaded_tiles.append(tile)
+					if tile.active:
+						game.collide_tiles.append(tile)
+		for tile in game.loaded_tiles:
+			tile.update()
+		for d in game.world.derclist:
+			d.draw()
 		for tile in game.loaded_tiles:
 			tile.draw()
 
 		game.player.draw()
-
+		for gem in game.world.gemlist:
+			gem.draw()
 		"""
 		for tile in game.world.tilelist:
 			tile.draw()
@@ -855,6 +964,8 @@ while run==True:
 	elif game.stage=="map":
 		screen.blit(game.world.map,(0,0))
 		screen.blit(game.world.cover,(0,0))
+		for pos,surf in game.world.gem_surfs:
+			screen.blit(surf,pos)
 		screen.blit(make_surf((3,3),(255,0,0)),[game.player.mappos[0]-1,game.player.mappos[1]-1])
 	elif game.stage=="inventory":
 		screen.fill((239,207,124))

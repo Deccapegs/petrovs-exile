@@ -11,13 +11,12 @@
 -make gun
 -make rocket jumping (nevermind)
 -make resorce gathering
-
 -make inventory
-
 -make gems
 -make mining/digging
+
 -make paralax
--make 3 enimes and boss
+-make 3 enimes
 -make npcs/crafting
 -make gem map
 -make chests
