@@ -14,11 +14,13 @@
 -make inventory
 -make gems
 -make mining/digging
+-make paralax (tf nvm do waves instead)
+-make 3 enimes(2)
 
--make paralax
--make 3 enimes
+-make wave bg (and juice)
 -make npcs/crafting
 -make gem map
+-make bouncy wave enimy
 -make chests
 -make story
 -make menu
@@ -28,3 +30,5 @@
 if time
 -grass variants
 -tree variants
+
+my game is not a buggy mess

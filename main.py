@@ -16,8 +16,8 @@ def get_dist(p1,p2):
 	return ((p1[0]-p2[0])**2+(p1[1]-p2[1])**2)**0.5
 def withoutscroll(pos):
 	return [pos[0]+game.scroll[0],pos[1]+game.scroll[1]]
-def withscroll(pos):
-	return [(pos[0]-game.scroll[0]),(pos[1]-game.scroll[1])]
+def withscroll(pos,mult=1):
+	return [(pos[0]-game.scroll[0]*mult),(pos[1]-game.scroll[1]*mult)]
 def make_surf(size,colour,alpha=0):
 	surf=pygame.Surface(size,alpha).convert_alpha() if alpha==pygame.SRCALPHA else pygame.Surface(size,alpha).convert()
 	surf.fill(colour)
@@ -45,6 +45,15 @@ def remove_list(list_,rlist):
 		except ValueError:
 			pass
 	return list_
+def ran_sign():
+	return 1 if random.random()>0.5 else -1
+def collide_bullet(self,bullets):
+	indexs=self.rect.collidelistall(bullets)
+	for i in indexs:
+		if self.rect.clipline(*bullets[i].line):
+			bullets[i].pop()
+			return i
+	return -1
 class Sin():
 	def __init__(self,frequency,height,start=0):
 		self.frequency=frequency
@@ -59,6 +68,7 @@ class Sin():
 		self.val=math.sin(self.timer)*self.height
 	def reset(self):
 		self.timer=self.start
+
 class types():
 	def __init__(self):
 		self.grass=1
@@ -105,10 +115,12 @@ imgs={
 	"player":pygame.image.load("imgs/petrov.png").convert_alpha(),
 	"foliage_sheet":pygame.image.load("imgs/foliage.png").convert_alpha(),
 	"items":pygame.image.load("imgs/items.png").convert_alpha(),
-	"gem_sheet":pygame.image.load("imgs/gems.png").convert_alpha()
+	"gem_sheet":pygame.image.load("imgs/gems.png").convert_alpha(),
+	"enemy_sheet":pygame.image.load("imgs/enemies.png").convert_alpha()
 }
 imgs.update({
 	"wood_bridge":get_surf_from_sheet(imgs["tilesheet"],(0,-96),(16,16)),
+	"shovel":get_surf_from_sheet(imgs["tilesheet"],(-16,-96),(16,16)),
 	"small_rock":get_surf_from_sheet(imgs["foliage_sheet"],(0,-13),(14,8)),
 	"rock_derc":get_surf_from_sheet(imgs["foliage_sheet"],(0,0),(22,13)),
 	"rock_sheet":get_surf_from_sheet(imgs["tilesheet"],(-48,0),(48,96)),
@@ -122,41 +134,13 @@ imgs.update({
 	t.yellow:get_surf_from_sheet(imgs["gem_sheet"],(-16,0),(16,32)),
 	t.red:get_surf_from_sheet(imgs["gem_sheet"],(-32,0),(16,23)),
 	t.blue:get_surf_from_sheet(imgs["gem_sheet"],(-48,0),(16,32)),
-	}
+	},
+	"small_rock_sheet":get_surf_from_sheet(imgs["tilesheet"],(-36,-112),(24,48)),
+	"small_grass_sheet":get_surf_from_sheet(imgs["tilesheet"],(0,-112),(36,72)),
+	"enemy_stump":get_surf_from_sheet(imgs["enemy_sheet"],(0,0),(16,16)),
+	"enemy_orb":get_surf_from_sheet(imgs["enemy_sheet"],(-16,0),(16,16))
+
 	})
-class sinfx():
-	def __init__(self,height,frequency,length,delay,colour,thickness=2,angle=0,cached_wave=None):
-		self.height=height
-		self.frequency=frequency
-		self.length=length
-		self.speed=delay
-		self.colour=colour
-		self.angle=angle
-		size=(length,height*2)
-		self.size=size
-		if  cached_wave!=None:
-			self.imgs=cached_wave.imgs
-			self.img=animation(self.imgs,self.imgs[0].get_size(),delay)
-
-			return None
-		points=[]
-		self.imgs=[]
-		for offset in range(math.ceil(1/frequency*math.pi*2)):
-			points=[]
-			img=pygame.Surface(size,pygame.SRCALPHA).convert_alpha()
-			img.fill((0,0,0,0))
-			for x in range(math.ceil(size[0])):
-				points.append((x,math.sin((x+offset)*frequency)*height+height))
-
-			pygame.draw.lines(img, colour, False, points, thickness)
-			img=pygame.transform.rotate(img,angle)
-			self.imgs.append(img)
-		self.img=animation(self.imgs,self.imgs[0].get_size(),delay)
-	def update(self):
-		self.img.update()
-	def draw(self,pos):
-		self.img.draw(pos)
-
 class animation():
 	def __init__(self,image,size:list,delay:int,frame=0):
 		self.delay=delay
@@ -201,6 +185,124 @@ class animation():
 		self.frame%=self.frames_amount+1
 		self.img.fill((0,0,0,0))
 		self.img.blit(self.frames,(self.frame*-self.size[0],0))
+class sinfx():
+	def __init__(self,height,frequency,length,delay,colour,thickness=2,angle=0,cached_wave=None):
+		self.height=height
+		self.frequency=frequency
+		self.length=length
+		self.speed=delay
+		self.colour=colour
+		self.angle=angle
+		size=(length,height*2)
+		self.size=size
+		if  cached_wave!=None:
+			self.imgs=cached_wave.imgs
+			self.img=animation(self.imgs,self.imgs[0].get_size(),delay)
+
+			return None
+		points=[]
+		self.imgs=[]
+		for offset in range(math.ceil(1/frequency*math.pi*2)):
+			points=[]
+			img=pygame.Surface(size,pygame.SRCALPHA).convert_alpha()
+			img.fill((0,0,0,0))
+			for x in range(math.ceil(size[0])):
+				points.append((x,math.sin((x+offset)*frequency)*height+height))
+
+			pygame.draw.lines(img, colour, False, points, thickness)
+			img=pygame.transform.rotate(img,angle)
+			self.imgs.append(img)
+		self.img=animation(self.imgs,self.imgs[0].get_size(),delay)
+	def update(self):
+		self.img.update()
+	def draw(self,pos):
+		self.img.draw(pos)
+class bgsin():
+	def __init__(self,height,frequency,length,speed,colour,thickness,pos=[0,0],smoothness=5):
+		self.height=height
+		self.frequency=frequency
+		self.length=length
+		self.speed=speed
+		self.colour=colour
+		self.timer=0
+		self.thickness=thickness
+		
+		self.smoothness=smoothness
+	def renew_points(self):
+		self.points=[]
+		for x in range(math.ceil(self.length)):
+			self.points.append((x+pos[0],math.sin((x+timer)*frequency)*height+height+pos[1]))
+	def update(self,**kwargs):
+		for key,val in kwargs.items():
+			setattr(self,key,(getattr(self,key)+val*(self.smoothness-1))/self.smoothness)
+	def draw(self):
+		pygame.draw.lines(screen, self.colour, False, self.points, self.thickness)
+
+class Particle:
+		def __init__(self
+				,size:float or int
+				,pos:list
+				,angle=0
+				,totalspeed=0
+				,colour=(255,255,255)
+				,gravity=0
+				,xgravity=0
+				,lifeloss=0.1
+				,staticspeed=[0,0]
+				,alphaloss=0
+				,alpha=255
+				,flag=pygame.BLENDMODE_NONE
+				,delay=0
+				,friction=0.95
+				):
+			self.pos=list(pos)
+			self.angle=math.radians(angle)
+			self.size=size
+			self.totalspeed=totalspeed
+			self.staticspeed=list(staticspeed)
+			self.colour=colour
+			self.alpha=alpha
+			self.flag=flag
+			self.gravity=gravity
+			self.xgravity=xgravity
+			self.lifeloss=lifeloss
+			self.alphaloss=alphaloss
+			self.img=pygame.Surface((size*2,size*2),pygame.SRCALPHA)
+			self.delay=delay
+			self.delaytimer=0
+			self.friction=friction
+			game.particles.append(self)
+		def update(self):
+			if self.delaytimer>self.delay:
+				self.staticspeed[0]*=self.friction
+				self.staticspeed[1]*=self.friction
+				self.totalspeed*=self.friction
+				self.size-=self.lifeloss
+				self.staticspeed[1]+=self.gravity
+				self.staticspeed[0]+=self.xgravity
+				self.pos[0]+=math.sin(self.angle)*self.totalspeed
+				self.pos[1]+=math.cos(self.angle)*self.totalspeed
+				self.pos[0]+=self.staticspeed[0]
+				self.pos[1]+=self.staticspeed[1]
+				self.img=pygame.Surface((self.size*2,self.size*2),pygame.SRCALPHA)
+				self.img.fill((0,0,0,0))
+				pygame.draw.circle(self.img,self.colour,(self.size,self.size),self.size)
+				self.alpha-=self.alphaloss
+				self.img.set_alpha(self.alpha)
+				if self.size<=0 or self.alpha<=0:
+					game.remove_particles.append(self)
+					del self
+					return None
+			else:
+				self.delaytimer+=1
+		def draw(self):
+			screen.blit(self.img,withscroll((self.pos[0]-self.size,self.pos[1]-self.size)),special_flags=self.flag)
+
+
+cached_player_bullets={i*22.5:sinfx(5.5,0.3,32,3 ,(60,200,220),angle=i*22.5) for i in range(-16,16)}
+cached_purple_bullets={i*22.5:sinfx(5.5,1,32,3 ,(225,55,170),angle=i*22.5) for i in range(-16,16)}
+
+
 
 class text():
     def __init__(self):
@@ -242,7 +344,7 @@ class decr():
 			self.img.update()
 		except AttributeError:
 			pass
-		for bullet in game.bullets:	
+		for bullet in game.player_bullets:	
 			if self.rect.clipline(*bullet.line):
 				bullet.pop()
 				self.health-=1
@@ -262,11 +364,12 @@ class decr():
 		except TypeError:
 			self.img.draw(withscroll((self.rect.topleft))) 
 class Tile():
-	def __init__(self,img,pos,sheetpos=(0,0),lists=[]):
-		self.img=get_surf_from_sheet(img,sheetpos,(16,16))
+	def __init__(self,img,pos,sheetpos=(0,0),lists=[],scroll_mult=1,size=16):
+		self.img=get_surf_from_sheet(img,sheetpos,(size,size))
 		self.pos=pos
 		self.rect=self.img.get_rect(topleft=self.pos)
 		self.active=True
+		self.scroll_mult=scroll_mult
 		for list_ in lists:
 			list_.append(self)
 		self.mappos=[self.pos[0]/16,self.pos[1]/16]
@@ -276,7 +379,8 @@ class Tile():
 		else:
 			self.img.set_alpha(255)
 	def draw(self):
-		screen.blit(self.img,withscroll(self.pos))
+		#screen.blit(self.img,withscroll(self.pos))
+		screen.blit(self.img,withscroll(self.pos,self.scroll_mult))
 class Gem():
 	def __init__(self,img,pos,type_=t.purple,lists=[],gem_surf=None):
 		self.img=img
@@ -365,13 +469,45 @@ class World():
 						else:
 							bools[i]=True if side==False else False
 			return False if False in bools else True
-
+		def Auto_tile(x,y,data):
+			sheetpos=[0,0]
+			if data[y][x]==t.air:
+				return(0,0)
+			if data[y][x-1]!=t.air and data[y][x+1]!=t.air:					
+				sheetpos[0]=-16
+			elif data[y][x+1]!=t.air:
+				sheetpos[0]=0
+			elif data[y][x-1]!=t.air:
+				sheetpos[0]=-32
+			if data[y-1][x]!=t.air and data[y+1][x]!=t.air:
+				sheetpos[1]=-16
+			elif data[y+1][x]!=t.air:
+				sheetpos[1]=0
+			elif data[y-1][x]!=t.air:
+				sheetpos[1]=-32
+			if data[y][x-1]==t.air and data[y][x+1]==t.air and data[y-1][x]==t.air and data[y+1][x]==t.air:
+				sheetpos=[0,-48]
+			elif check_sides((x,y),val,[False,False,False,True]):
+				sheetpos=[-32,-48]
+			elif check_sides((x,y),val,[False,False,True,False]):
+				sheetpos=[-32,-64]
+			elif check_sides((x,y),val,[False,True,False,False]):
+				sheetpos=[0,-64]
+			elif check_sides((x,y),val,[True,False,False,False]):
+				sheetpos=[-16,-64]
+			elif check_sides((x,y),val,[True,True,False,False]):
+				sheetpos=[-16,-48]
+			elif check_sides((x,y),val,[False,False,True,True]):
+				sheetpos=[0,-80]
+			return sheetpos
 		self.bignoise=Pnoise(octaves=12,seed=round(random.random()*10000000))
 		self.noise=Pnoise(octaves=35,seed=round(random.random()*10000000))
 		self.finenoise=Pnoise(octaves=100,seed=round(random.random()*10000000))
 		self.finemult=Pnoise(octaves=35,seed=round(random.random()*10000000))
 		self.rock_noise=Pnoise(octaves=12,seed=round(random.random()*10000000))
 		self.tree_noise=Pnoise(octaves=12,seed=round(random.random()*10000000))
+		self.parallax=Pnoise(octaves=32,seed=round(random.random()*10000000))
+		self.parallax_back=Pnoise(octaves=50,seed=round(random.random()*10000000))
 		self.size=[screen_width,screen_height]
 		self.limit=50
 		self.map=pygame.Surface(self.size,pygame.SRCALPHA).convert_alpha()
@@ -384,9 +520,13 @@ class World():
 		array4=get_noise(self.bignoise,self.size)
 		rock_array=get_noise(self.rock_noise,self.size)
 		tree_array=get_noise(self.tree_noise,self.size)
+		parallax_array=get_noise(self.parallax,[math.ceil(self.size[0]*2/3),math.ceil(self.size[1]*2/3)])
 		self.data=[[0 for x in range(self.size[0])] for y in range(self.size[1])]
 		self.tiles=[[None for x in range(self.size[0])] for y in range(self.size[1])]
 		self.tilelist=[]
+		#self.parallaxdata=list(self.data)
+		#self.parallaxtiles=list(self.tiles)
+		self.parallaxlist=[]
 		self.derclist=[]
 		self.gemlist=[]
 		self.gem_surfs=[]
@@ -407,10 +547,14 @@ class World():
 						self.data[y][x]=t.grass
 				else:
 					self.data[y][x]=t.air
+		
+				#if -0.28>height:
+				#	self.parallaxdata[y][x]=t.grass
 		grass_pallete=((31,209,85),(29,196,101),(26,173,143))
 		dirt_pallete=((174,97,62),(150,83,78),(127,70,78))
 		rock_tile_pallete=((145,145,159),(137,133,125))
 		top_rock_pallete=((168,167,131),(137,133,125))
+		
 		for y,row in enumerate(self.data):
 			for x,val in enumerate(row):
 				if check_sides((x,y),t.grass,[None,None,False,None]) and val in (t.grass,t.rock_tile):
@@ -425,36 +569,9 @@ class World():
 					self.map.set_at((x,y),random.choice(rock_tile_pallete))
 
 				data=self.data
-				sheetpos=[0,0]
+				sheetpos=Auto_tile(x,y,data)
 				
-				if val==t.air:
-					continue
-				if data[y][x-1]!=t.air and data[y][x+1]!=t.air:					
-					sheetpos[0]=-16
-				elif data[y][x+1]!=t.air:
-					sheetpos[0]=0
-				elif data[y][x-1]!=t.air:
-					sheetpos[0]=-32
-				if data[y-1][x]!=t.air and data[y+1][x]!=t.air:
-					sheetpos[1]=-16
-				elif data[y+1][x]!=t.air:
-					sheetpos[1]=0
-				elif data[y-1][x]!=t.air:
-					sheetpos[1]=-32
-				if data[y][x-1]==t.air and data[y][x+1]==t.air and data[y-1][x]==t.air and data[y+1][x]==t.air:
-					sheetpos=[0,-48]
-				elif check_sides((x,y),val,[False,False,False,True]):
-					sheetpos=[-32,-48]
-				elif check_sides((x,y),val,[False,False,True,False]):
-					sheetpos=[-32,-64]
-				elif check_sides((x,y),val,[False,True,False,False]):
-					sheetpos=[0,-64]
-				elif check_sides((x,y),val,[True,False,False,False]):
-					sheetpos=[-16,-64]
-				elif check_sides((x,y),val,[True,True,False,False]):
-					sheetpos=[-16,-48]
-				elif check_sides((x,y),val,[False,False,True,True]):
-					sheetpos=[0,-80]
+			
 				if val==t.grass:
 					self.tiles[y][x]=Tile(imgs["tilesheet"],[x*16,y*16],sheetpos=sheetpos,lists=[self.tilelist])	
 				if val==t.rock_tile:
@@ -542,7 +659,6 @@ class World():
 				elif tree_type==2:
 					yotal+=1
 					decr(imgs["tree"],[pos[0]*16-24,pos[1]*16-24],anchor="topleft",lists=[self.derclist],health=10,items={"wood":6})
-		print(num,yotal)
 		gem_points=[]
 		count=0
 		while len(gem_points)<4:
@@ -575,7 +691,7 @@ class World():
 				elif self.tiles[pos[1]][pos[0]]
 			"""
 class Bullet():
-	def __init__(self,pos,speed,angle,wave,parent=None,explode=False):
+	def __init__(self,pos,speed,angle,wave,parent=None,explode=False,damage=1):
 		self.pos=list(pos)
 		self.speed=int(speed)
 		self.angle=math.radians(angle)
@@ -586,8 +702,11 @@ class Bullet():
 		self.rect=mask_surf.get_rect(center=self.pos)
 		self.mask=pygame.mask.from_surface(mask_surf)
 		self.pop_timer=0
+		self.damage=damage
 		self.expolde=explode
 		game.bullets.append(self)
+		if parent==game.player:
+			game.player_bullets.append(self)
 		self.parent=parent
 		self.line=[[0,0],[0,0]]
 	def update(self):
@@ -618,6 +737,11 @@ class Bullet():
 	def pop(self,bypass=True):
 		if self.pop_timer>5 or bypass:
 			game.remove_bullets.append(self)
+			if self.parent==game.player:
+				try:
+					game.player_bullets.remove(self)
+				except ValueError:
+					pass
 			if self.expolde:
 				Expolsion(self.pos,10,recoil=10)
 			del self
@@ -646,11 +770,114 @@ class Expolsion():
 	def pop(self):
 		game.remove_expolsions.append(self)
 def get_wave_angle(angle):
-	return math.floor(angle/22.5+0.5)*22.5
+	return math.floor(angle/22.5+0.5)*22.5%360
 def get_mouse_player_angle():
 	point=-(mouse_get_pos()[1]-screen_height/2+5),mouse_get_pos()[0]-screen_width/2+7
 	angle=math.degrees(math.atan2(*point))
 	return angle
+class bhellring():
+	def __init__(self,bullets,pos,waves=cached_player_bullets,speed=1,interval=30,angle=0,angle_change=1,parent=None,type_juice=False,start_time=0):
+		self.bullets=bullets
+		self.angle=angle
+		self.parent=parent
+		self.angle_change=angle_change
+		self.interval=interval
+		self.pos=pos
+		self.timer=start_time
+		self.speed=speed
+		self.waves=waves
+		
+	def update(self):
+		self.timer+=1
+		self.angle+=self.angle_change
+		try:
+			self.pos=self.parent.rect.center
+		except AttributeError:
+			pass
+		if self.timer>=self.interval:
+			for i in range(self.bullets):
+				angle=self.angle+(i*360)/self.bullets
+				Bullet(list(self.pos),self.speed,angle,wave=self.waves[get_wave_angle(angle)])
+			self.timer=0
+	def update_parent(self,parent):
+		self.parent=parent
+class bhellpattern():
+	def __init__(self,angle,pos,waves=cached_purple_bullets,angle_change=1,angle_wave_hertz=0,angle_wave_height=0,spray=0,interval=90,speed=3,telegraph=False,followplayer=False,parent=None,type_juice=False,start_time=0):
+		self.angle=angle
+		self.pos=pos
+		self.angle_change=angle_change
+		self.spray=spray
+		self.angle_sin_f=angle_wave_hertz
+		self.angle_wave_height=angle_wave_height
+		self.sintimer=0
+		self.sinoffset=0
+		self.interval=interval
+		self.timer=start_time
+		self.speed=speed
+		self.telegraph=telegraph
+		self.followplayer=followplayer
+		self.parent=parent
+		self.waves=waves
+		
+	def update(self):
+		self.timer+=1
+		self.sintimer+=self.angle_sin_f
+		if self.timer==self.interval:
+			if self.parent!=None:
+				self.pos=self.parent.rect.center
+			self.angle+=self.angle_change
+			self.sinoffset=math.sin(self.sintimer)*self.angle_wave_height
+			angle=(math.degrees(math.atan2(-(game.player.pos[1]-self.pos[1]),game.player.pos[0]-self.pos[0])) if self.followplayer==True else self.angle)+self.sinoffset+random.random()*self.spray
+			Bullet(list(self.pos),self.speed,angle,self.waves[get_wave_angle(angle)])
+		self.timer%=self.interval+1
+
+	def update_parent(self,parent):
+		self.parent=parent
+class Enemy():
+	def __init__(self,pos,img,pattens,health=3,gravity=0,speed=0,grounded=False):
+		for patten in pattens:
+			patten.update_parent(self)
+		self.img=img
+		self.pos=list(pos)
+		self.grav=int(gravity)
+		self.speed=int(speed)
+		self.health=int(health)
+		self.pattens=pattens
+		self.rect=self.img.get_rect(topleft=self.pos)
+		game.enemies.append(self)
+		coled=False
+		if self.rect.collidelist(game.loaded_tiles)!=-1:
+			for _ in range(170):
+				self.pos[1]-=1
+				self.rect.y=self.pos[1]
+				if self.rect.collidelist(game.loaded_tiles)!=-1:
+					break
+			else:
+				self.pop()
+		if grounded:
+			for _ in range(170):
+				self.pos[1]+=1
+				self.rect.y=self.pos[1]
+				if self.rect.collidelist(game.loaded_tiles)!=-1:
+					coled=True
+					break
+			if not coled:
+				self.pop()
+	def update(self):
+		for pattern in self.pattens:
+			pattern.update()
+		if collide_bullet(self,game.player_bullets)!=-1:
+			self.health-=1
+			if self.health<=0:
+				self.pop()
+		if daynight.night[0]==False:
+			self.pop()
+	def draw(self):
+		screen.blit(self.img,withscroll(self.pos))
+	def pop(self):
+		game.remove_enemies.append(self)
+		del self
+
 
 class Player():
 	def __init__(self):
@@ -672,6 +899,13 @@ class Player():
 		self.max_coyote=12
 		self.coyote=0
 		self.hovering_tile=False
+		self.health=10
+		self.max_health=10
+		self.hunger=60*180
+		self.max_hunger=60*180
+		self.health_bar=pygame.Rect((0,screen_height-7),(self.health/self.max_health*40,5))
+		self.hunger_bar=pygame.Rect((0,screen_height-14),(self.hunger/self.max_hunger*50,7))
+
 
 		self.placing_bridge=False
 		self.bridge_pos=[0,0]
@@ -691,6 +925,8 @@ class Player():
 		self.bottom_tile=game.world.tiles[math.floor(self.pos[1]/16)][math.floor(self.pos[0]/16)]
 		#self.rect=pygame.Rect(self.pos,50,50)
 	def update(self):
+		self.health_bar=pygame.Rect((0,screen_height-7),(self.health/self.max_health*40,5))
+		self.hunger_bar=pygame.Rect((0,screen_height-14),(self.hunger/self.max_hunger*50,7))
 		self.mappos=[math.floor(self.pos[0]/16),math.floor(self.pos[1]/16)]
 		for i in range(2):
 			if not(-12*16<self.pos[i]<game.world.size[i]*16+12*16):
@@ -715,16 +951,23 @@ class Player():
 		self.bridge_pos=(math.floor((mouse_get_pos()[0]+game.scroll[0])/16)*16,math.floor((mouse_get_pos()[1]+game.scroll[1])/16)*16)
 
 		if self.placing_bridge:
+			tile="no"
 			try:
 				tile=game.world.tiles[int(self.bridge_pos[1]/16)][int(self.bridge_pos[0]/16)]
 			except IndexError:
 				pass
 			self.hovering_tile=False if tile==None else True
-			if c.mouse[0]==[False,True]:
+			if tile=="no":
+				pass
+			elif c.mouse[0]==[False,True]:
 				
 				if tile==None:
-					
-					game.world.tiles[int(self.bridge_pos[1]/16)][int(self.bridge_pos[0]/16)]=Tile(imgs["wood_bridge"],self.bridge_pos,lists=[game.world.tilelist])
+					if self.inventory["wood"]>=2 and self.inventory["rock"]>=1:
+						self.inventory["wood"]-=2
+						self.inventory["rock"]-=1
+						game.world.tiles[int(self.bridge_pos[1]/16)][int(self.bridge_pos[0]/16)]=Tile(imgs["wood_bridge"],self.bridge_pos,lists=[game.world.tilelist])
+					else:
+						Notice("2 wood and 1 rock required")
 				else:
 					tile.active=False if tile.active==True else True
 		self.speed[1]*=1 if (c.key["w"] or c.key["SPACE"]) and self.speed[1]<=0 else self.airrest*0.92
@@ -770,7 +1013,13 @@ class Player():
 			self.speed[1]=0
 		else:
 			self.grounded=False
-		
+		indexs=self.rect.collidelistall(game.bullets)
+		for i in indexs:
+			if game.bullets[i] in game.player_bullets:
+				continue
+			if self.rect.clipline(*game.bullets[i].line):
+				self.health-=game.bullets[i].damage
+				game.bullets[i].pop()
 		if self.jumped:
 			self.disimg=self.jump_img
 		elif self.moving:
@@ -790,7 +1039,7 @@ class Player():
 			if self.gun_timer==self.gun_interval:
 				self.gun_timer=0
 				angle=get_mouse_player_angle()
-				Bullet(game.player.pos,2.5,angle,sinfx(7,1,32,1,(255,0,255),cached_wave=game.cached_player_bullets[get_wave_angle(angle)]),explode=False)
+				Bullet(game.player.pos,2.5,angle,sinfx(7,1,32,1,(255,0,255),cached_wave=game.cached_player_bullets[get_wave_angle(angle)]),explode=False,parent=self)
 				self.speed[0]-=math.cos(math.radians(angle))*self.recoil
 				self.speed[1]+=math.sin(math.radians(angle))*self.recoil
 			self.gun_timer+=1
@@ -809,8 +1058,13 @@ class Player():
 	def draw(self):
 		if self.placing_bridge and not self.hovering_tile:
 			screen.blit(imgs["wood_bridge"],withscroll(self.bridge_pos))
+		elif self.placing_bridge:
+			screen.blit(imgs["shovel"],withscroll(self.bridge_pos))
 		screen.blit(self.disimg,withscroll((self.pos[0]-1,self.pos[1])))
-		#pygame.draw.rect(screen,(255,0,0),self.rect)
+	def draw_bar(self):
+
+		pygame.draw.rect(screen,(128,255,0),self.hunger_bar)
+		pygame.draw.rect(screen,(255,0,0),self.health_bar)
 class Notice():
 		def __init__(self,textv:str,image=None,begin=True):
 			game.notice_board.notices.append(self)
@@ -858,6 +1112,27 @@ class Notification_Center():
 	def draw(self):
 		for notice in self.notices:
 			notice.draw()
+class Daynight():
+	def __init__(self):
+		self.timer=0
+		self.reset=240*60
+		self.night=[False,False]
+		self.img=make_surf([screen_width,screen_height],(60,60,40))
+	def update(self):
+		self.night[1]=self.night[0]
+		self.timer+=1
+		self.timer%=self.reset
+
+		if self.timer>=self.reset*2/3:
+			self.night[0]=True
+		else:
+			self.night[0]=False
+		if self.night==[True,False]:
+			for _ in range(10):
+				Enemy(add_poses(game.player.pos,(ran_sign()*random.random()*100,ran_sign()*random.random()*100)),imgs["enemy_stump"],[bhellpattern(90,[0,0],followplayer=True,speed=2,start_time=random.random()*90,waves=game.cached_purple_bullets)],grounded=True)
+				Enemy(add_poses(game.player.pos,(ran_sign()*random.random()*100,ran_sign()*random.random()*100)),imgs["enemy_orb"],[bhellring(4,[0,0],interval=120,angle_change=0.3,angle=random.random()*360,start_time=random.random()*120,waves=game.cached_purple_bullets)])
+	def draw(self):
+		screen.blit(self.img,(0,0),special_flags=pygame.BLEND_RGB_SUB) if self.night[0] else None
 class Game():
 	def __init__(self):
 		global screen
@@ -868,24 +1143,36 @@ class Game():
 		pygame.display.update()
 		self.bullets=[]
 		self.remove_bullets=[]
+		self.player_bullets=[]
 		self.expolsions=[]
 		self.remove_expolsions=[]
-		self.cached_player_bullets={i*22.5:sinfx(5.5,0.3,32,3 ,(60,200,220),angle=i*22.5) for i in range(-16,16)}
+		self.particles=[]
+		self.remove_particles=[]
+		self.cached_player_bullets=cached_player_bullets
+		self.cached_purple_bullets=cached_purple_bullets
 		self.scroll=[0,0]
 		self.loaded_tiles=[]
+		self.loaded_parallax=[]
 		self.collide_tiles=[]
+		self.bhellpatterns=[]
+		self.enemies=[]
+		self.remove_enemies=[]
 		self.stage="play"
 		self.notice_board=Notification_Center()
+		self.daynight=Daynight()
 	def initother(self):
 		self.world=World()
 		self.player=Player()
 testsin=sinfx(5.5,0.3,32,3 ,(60,200,220),angle=45)
 game=Game()
 game.initother()
+
+
 Notice("welcome to the isle of abyss,petrov")
 
 run= True
 while run==True:
+
 	screen=pygame.Surface((screen_width,screen_height)).convert()
 	screen.fill((40,100,230))
 	c.update()
@@ -904,6 +1191,7 @@ while run==True:
 				game.player.placing_bridge=True if game.player.placing_bridge==False else False
 
 	if game.stage=="play":
+		game.daynight.update()
 		game.player.update()
 		game.notice_board.update()
 		game.world.cover=make_hole(game.world.cover,make_circle_surf(15,(255,255,255)),add_poses(game.player.mappos,(-15,-15)))
@@ -916,12 +1204,16 @@ while run==True:
 			decr.update()
 		for gem in game.world.gemlist:
 			gem.update()
+		for e in game.enemies:
+			e.update()
 		
 		
 		game.loaded_tiles=[]
 		game.collide_tiles=[]
+
+	
+
 		for y in range(math.floor(game.scroll[1]/16)-5,math.floor(game.scroll[1]/16)+15):
-			
 			for x in range(math.floor(game.scroll[0]/16)-5,math.floor(game.scroll[0]/16)+30):
 				try:
 					tile=game.world.tiles[y][x]
@@ -932,10 +1224,16 @@ while run==True:
 					game.loaded_tiles.append(tile)
 					if tile.active:
 						game.collide_tiles.append(tile)
+
 		for tile in game.loaded_tiles:
 			tile.update()
+		
+	#	for tile in game.world.parallaxlist:
+	#		tile.draw()
 		for d in game.world.derclist:
 			d.draw()
+		for e in game.enemies:
+			e.draw()
 		for tile in game.loaded_tiles:
 			tile.draw()
 
@@ -958,8 +1256,15 @@ while run==True:
 			except ValueError:
 				pass
 		game.expolsions=remove_list(game.expolsions,game.remove_expolsions)
+		game.enemies=remove_list(game.enemies,game.remove_enemies)
+		game.particles=remove_list(game.particles,game.remove_particles)
 		game.remove_expolsions=[]
 		game.remove_bullets=[]
+		game.remove_enemies=[]
+		for p in game.particles:
+			p.update()
+		game.daynight.draw()
+		game.player.draw_bar()
 		game.notice_board.draw()
 	elif game.stage=="map":
 		screen.blit(game.world.map,(0,0))
@@ -976,7 +1281,7 @@ while run==True:
 			screen.blit(imgs[key],(text_.get_size()[0]+8,count*16+6))
 			count+=1
 
-	pygame.display.set_caption(f" fps:{clock.get_fps()}")
+	pygame.display.set_caption(f"health:{game.player.health} fps:{clock.get_fps()}")
 	screen=pygame.transform.scale(screen,window.get_size())
 	window.blit(screen,(0,0))
 	pygame.display.update()
