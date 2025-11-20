@@ -1,19 +1,44 @@
 -make map gen
 -make autotile
-
 -make player move
 -bhopping
 -make minimap
--make player buildings
+-make player building
 -make strucs spawn
 -make stone tiles
--make resorce gathering
--make gems
 -make sin wave vfx
+-make bullets
 -make gun
--make rocket jumping
--make 3 enimes and boss
+-make rocket jumping (nevermind)
+-make resorce gathering
+-make inventory
+-make gems
+-make mining/digging
+-make paralax (tf nvm do waves instead)
+-make 3 enimes(2)
+-make wave bg (and juice)
+-refactor and make speech sys
 -make npcs
+-fix peformance(lets goo)
+-make gem map
+-fix enemy spawning
+
+-make bouncy wave enimy
+
+-make chests
+-make hunger
+-make enemy spawning better
 -make story
+-make lumberjuck npc
 -make menu
 -make polish
+-make ripple wave vfx
+
+if time
+-grass variants
+-tree variants
+-clock
+
+my game is not a buggy mess
+the scope thins
+I dont think I can do bullet hell
