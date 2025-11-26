@@ -22,23 +22,40 @@
 -fix peformance(lets goo)
 -make gem map
 -fix enemy spawning
-
--make bouncy wave enimy
-
+-make bouncy wave enimy (nvm im lazy to do trig)
+-make ripple wave vfx
+-iframes
 -make chests
--make hunger
+-make bushes(for healthing)
+-make death
+-make hunger (nvm unnessary)
 -make enemy spawning better
 -make story
--make lumberjuck npc
--make menu
+-make tutoral
+-make end
+-make menu (nvm I'm lazy)
+
 -make polish
--make ripple wave vfx
+-improve gem spawning
 
 if time
 -grass variants
 -tree variants
 -clock
+-make tradesman npc (buys wood and sells stuff for coin)
 
 my game is not a buggy mess
 the scope thins
-I dont think I can do bullet hell
+what do you mean copy and pasting code within the script is a bad practice?
+
+credit for page:
+https://pixabay.com/sound-effects/birds-forest-spring-316364/
+
+other sfx when not in class:
+- wood placing
+- enemy die
+- enemy hit
+- digging
+- tree die
+- rock die
+- bush die

@@ -1,6 +1,8 @@
 import pygame,math,random
 from perlin_noise import PerlinNoise as Pnoise
 pygame.init()
+pygame.mixer.pre_init(44100,-16,2,512)
+pygame.mixer.init()
 screen_width=342
 screen_height=174
 info=pygame.display.Info()
@@ -122,6 +124,14 @@ def get_surf_from_sheet(sheet,sheetpos,size):
 	s.fill((0,0,0,0))
 	s.blit(sheet,sheetpos)
 	return s
+sfx={
+	"jump":[pygame.mixer.Sound(f"jump_{i}.wav") for i in range(1,5)],
+	"shoot":[pygame.mixer.Sound(f"shoot_{i}.wav") for i in range(1,4)],
+	"p_hit":[pygame.mixer.Sound(f"hit_{i}.wav") for i in range(1,4)],
+	"get_gem":[pygame.mixer.Sound("get_gem.wav")],
+	"ambiance":pygame.mixer.music.load("ambiance.mp3")
+}
+sfx["ambiance"].play(-1)
 imgs={
 	"tilesheet":pygame.image.load("imgs/tiles.png").convert_alpha(),
 	"text":pygame.image.load("imgs/text.png").convert_alpha(),
@@ -133,7 +143,9 @@ imgs={
 	"diabox":pygame.image.load("imgs/diabox.png").convert_alpha(),
 	"rbox":pygame.image.load("imgs/rbox.png").convert_alpha(),
 	"e_to_interact":pygame.image.load("imgs/e to interact.png").convert_alpha(),
-	"npcs":pygame.image.load("imgs/npcs.png").convert_alpha()
+	"npcs":pygame.image.load("imgs/npcs.png").convert_alpha(),
+	"death":pygame.image.load("imgs/death.png").convert(),
+	"win":pygame.image.load("imgs/win.png").convert()
 }
 imgs.update({
 	"wood_bridge":get_surf_from_sheet(imgs["tilesheet"],(0,-96),(16,16)),
@@ -156,10 +168,20 @@ imgs.update({
 	"small_grass_sheet":get_surf_from_sheet(imgs["tilesheet"],(0,-112),(36,72)),
 	"enemy_stump":get_surf_from_sheet(imgs["enemy_sheet"],(0,0),(16,16)),
 	"enemy_orb":get_surf_from_sheet(imgs["enemy_sheet"],(-16,0),(16,16)),
+	"enemy_stalactite":get_surf_from_sheet(imgs["enemy_sheet"],(-32,0),(16,16)),
 	"coin":get_surf_from_sheet(imgs["items"],(-15,0),(13,13)),
-	"cartographer":get_surf_from_sheet(imgs["npcs"],(0,0),(11,19))
+	"cartographer":get_surf_from_sheet(imgs["npcs"],(0,0),(24,19)),
+	"bush":get_surf_from_sheet(imgs["foliage_sheet"],(-71,0),(16,12)),
+	"chest":get_surf_from_sheet(imgs["foliage_sheet"],(-37,0),(16,12)),
+	"berry":get_surf_from_sheet(imgs["items"],(-10,-13),(13,11)),
+	"tut":get_surf_from_sheet(imgs["items"],(-73,0),(7,17))
+
 
 	})
+s=pygame.Surface((16,16),pygame.SRCALPHA).convert_alpha()
+s.blit(imgs["berry"],(0,0))
+pygame.display.set_icon(s)
+del s
 class animation():
 	def __init__(self,image,size:list,delay:int,frame=0):
 		self.delay=delay
@@ -236,6 +258,47 @@ class sinfx():
 		self.img.update()
 	def draw(self,pos):
 		self.img.draw(pos)
+class ripplefx():
+	def __init__(self,interval,thickness,speed,radius,colour=(255,0,255),cached_ripple=None):
+		self.interval=interval
+		self.thickness=thickness
+		self.speed=speed
+		self.radius=radius
+		self.colour=colour
+		self.rings=[]
+		for i in range(self.radius):
+			surf=pygame.Surface((self.radius*2,self.radius*2),pygame.SRCALPHA).convert_alpha()
+			pygame.draw.circle(surf,self.colour,(self.radius,self.radius),i,width=self.thickness)
+			self.rings.append(surf)
+		self.timer=0
+	def update(self):
+		self.timer+=self.speed
+		self.timer%=self.interval
+	def draw(self,pos=(0,0)):
+		for i in range(self.radius):
+			if math.floor((i+self.timer))%self.interval==0:
+				screen.blit(self.rings[i],pos)
+class ripple():
+	def __init__(self,ripple,pos,recoil=5,parent=None):
+		self.ripple=ripple
+		self.radius=ripple.radius
+		self.recoil=recoil
+		self.pos=pos
+		self.parent=parent
+	def update(self):
+		self.ripple.update()
+		if get_dist(game.player.rect.center,add_poses(self.pos,(self.radius,self.radius)))<=self.radius:
+			game.player.damage()
+		if self.parent!=None:
+			self.pos=add_poses(self.parent.rect.center,(-self.radius,-self.radius))
+	def update_parent(self,parent):
+		self.parent=parent
+	def draw(self):
+		self.ripple.draw(withscroll(self.pos))
+
+
+
+
 class bgsin():
 	def __init__(self,height,frequency,length,speed,colour,thickness,pos=[0,0],smoothness=5,fade=True,slope=0):
 		self.height=height
@@ -430,6 +493,7 @@ class Gem():
 		if game.player.rect.colliderect(self.rect):
 			Notice("one step closer to freedom...")
 			game.player.increase_gem_count()
+			random.choice(sfx["get_gem"]).play()
 			self.pop()
 			return
 	def pop(self):
@@ -440,6 +504,7 @@ class Gem():
 				pass
 		del self
 		return
+
 	def draw(self):
 		screen.blit(self.img,withscroll((self.pos[0],self.pos[1]+math.floor(self.sin.val))))
 class World():
@@ -613,8 +678,10 @@ class World():
 		#place structs
 		rock_palletee=((103,98,85),(84,89,69),(119,101,86),(70,85,57))
 		tree_pallette=((45,175,132),(50,193,128),(63,204,120),(32,153,130))
-		rock_init_poses=[[math.floor(random.random()*self.size[0]),math.floor(random.random()*self.size[1])] for _ in range(150)]
+		rock_init_poses=[[math.floor(random.random()*self.size[0]),math.floor(random.random()*self.size[1])] for _ in range(200)]
 		tree_init_poses=[[math.floor(random.random()*self.size[0]),math.floor(random.random()*self.size[1])] for _ in range(1000)]
+		bush_init_poses=[[math.floor(random.random()*self.size[0]),math.floor(random.random()*self.size[1])] for _ in range(50)]
+		chest_init_poses=[[math.floor(random.random()*self.size[0]),math.floor(random.random()*self.size[1])] for _ in range(20)]
 		def check_air(xy):
 			if xy[1]+1>self.size[1] or xy[1]-1<0:
 				return True
@@ -623,6 +690,7 @@ class World():
 					return self.data[xy[1]+1][xy[0]]==0
 				except IndexError:
 					return True
+
 		for pos in rock_init_poses:
 			if check_air(pos) or self.map.get_at(pos)[3]==255:
 				count=0
@@ -639,11 +707,10 @@ class World():
 						pos=[math.floor(random.random()*self.size[0]),math.floor(random.random()*self.size[1])]
 				if random.random()<=0.5:
 
-					self.decrs[pos[1]][pos[0]]=decr(imgs["small_rock"],[pos[0]*16+2,pos[1]*16+10],anchor="topleft",lists=[self.derclist],items={"rock":3},mappos=pos)
+					self.decrs[pos[1]][pos[0]]=decr(imgs["small_rock"],[pos[0]*16+2,pos[1]*16+10],anchor="topleft",lists=[self.derclist],items={"rock":2},mappos=pos)
 				else:
 					self.decrs[pos[1]][pos[0]]=decr(imgs["rock_derc"],[pos[0]*16-3,pos[1]*16+5],anchor="topleft",lists=[self.derclist],items={"rock":4},mappos=pos)
 
-				self.map.set_at(pos,random.choice(rock_palletee))
 		num=0
 		yotal=0
 		for pos in tree_init_poses:
@@ -685,7 +752,6 @@ class World():
 						pass
 
 					
-				self.map.set_at(pos,random.choice(tree_pallette))
 				if tree_type==0:
 					self.decrs[pos[1]][pos[0]]=decr(imgs["small_tree"],[pos[0]*16+3,pos[1]*16+6],anchor="topleft",lists=[self.derclist],items={"wood":2},mappos=pos)
 				elif tree_type==1:
@@ -693,13 +759,51 @@ class World():
 				elif tree_type==2:
 					yotal+=1
 					self.decrs[pos[1]][pos[0]]=decr(imgs["tree"],[pos[0]*16-24,pos[1]*16-24],anchor="topleft",lists=[self.derclist],health=10,items={"wood":5},mappos=pos)
+		for pos in chest_init_poses:
+			if check_air(pos) or self.map.get_at(pos)[3]==255:
+				count=0
+				while check_air(pos) or self.map.get_at(pos)[3]==255:
+					count+=1
+					if count>1000:
+						break
+					if check_air(pos):
+						pos[1]+=1
+					elif self.map.get_at(pos)[3]==255:
+						pos[1]-=1
+					if pos[1]>self.size[1] or pos[1]<0:
+
+						pos=[math.floor(random.random()*self.size[0]),math.floor(random.random()*self.size[1])]
+
+				self.decrs[pos[1]][pos[0]]=decr(imgs["chest"],[pos[0]*16+2,pos[1]*16+5],anchor="topleft",lists=[self.derclist],items={"coin":random.randint(1,2)*random.randint(1,2)*random.randint(1,2),random.choice(("rock","berry","wood")):random.randint(1,2)},mappos=pos)
+		for pos in bush_init_poses:
+			if check_air(pos) or self.map.get_at(pos)[3]==255:
+				count=0
+				while check_air(pos) or self.map.get_at(pos)[3]==255:
+					count+=1
+					if count>1000:
+						break
+					if check_air(pos):
+						pos[1]+=1
+					elif self.map.get_at(pos)[3]==255:
+						pos[1]-=1
+					if pos[1]>self.size[1] or pos[1]<0:
+
+						pos=[math.floor(random.random()*self.size[0]),math.floor(random.random()*self.size[1])]
+					try:
+						if self.data[pos[1]+1][pos[0]]==t.rock_tile:
+							pos=[math.floor(random.random()*self.size[0]),math.floor(random.random()*self.size[1])]
+					except IndexError:
+						pass
+				self.decrs[pos[1]][pos[0]]=decr(imgs["bush"],[pos[0]*16+2,pos[1]*16+5],anchor="topleft",lists=[self.derclist],items={"berry":2},mappos=pos)
+
+
 		gem_points=[]
 		count=0
 		while len(gem_points)<4:
 			point=[math.floor(random.random()*16*self.size[0]),math.floor(random.random()*16*self.size[1])]
 			
 			for other_point in gem_points:
-				if get_dist(point,other_point)<32*16:
+				if get_dist(point,other_point)<64*16:
 					break
 			else:
 			
@@ -712,16 +816,17 @@ class World():
 
 
 		for i,point in enumerate(gem_points):
+			#point=[self.size[0]/2*16,self.size[1]/2*16]
 			mappos=[point[0]/16,point[1]/16]
 			colour=(255,0,255)
 			if i ==t.purple:
 				colour=(185,35,255)
 			elif i==t.yellow:
-				colour=(224,205,85)
+				colour=(255,255,0)
 			elif i==t.red:
 				colour=(221,55,39)
 			elif i==t.blue:
-				colour=(105,147,216)
+				colour=(0,255,255)
 			surf=[mappos[0]-1,mappos[1]-1],make_surf((3,3),colour)
 			gem=Gem(imgs["gems"][i],point,lists=[self.gemlist],gem_surf=surf)
 			self.gem_surfs.append(surf)
@@ -861,29 +966,29 @@ class bhellpattern():
 	def update(self):
 		self.timer+=1
 		self.sintimer+=self.angle_sin_f
-		if self.timer==self.interval:
+		if self.timer>=self.interval:
 			if self.parent!=None:
 				self.pos=self.parent.rect.center
 			self.angle+=self.angle_change
 			self.sinoffset=math.sin(self.sintimer)*self.angle_wave_height
 			angle=(math.degrees(math.atan2(-(game.player.pos[1]-self.pos[1]),game.player.pos[0]-self.pos[0])) if self.followplayer==True else self.angle)+self.sinoffset+random.random()*self.spray
 			Bullet(list(self.pos),self.speed,angle,self.waves[get_wave_angle(angle)])
-		self.timer%=self.interval+1
+			self.timer=0
 
 	def update_parent(self,parent):
 		self.parent=parent
 class Enemy():
-	def __init__(self,pos,img,pattens,health=3,gravity=0,speed=0,grounded=False):
+	def __init__(self,pos,img,pattens,health=3,gravity=0,speed=0,grounded=False,roofed=False,items={"coin":2}):
 		for patten in pattens:
 			patten.update_parent(self)
 		self.img=img
-		self.pos=list(pos)
+		self.pos=[math.floor(pos[0]),math.floor(pos[1])]
 		self.grav=int(gravity)
 		self.speed=int(speed)
 		self.health=int(health)
 		self.pattens=pattens
 		self.rect=self.img.get_rect(topleft=self.pos)
-		self.coin=1
+		self.items=items
 		game.enemies.append(self)
 		coled=False
 		if self.rect.collidelist(game.loaded_tiles)!=-1:
@@ -896,7 +1001,16 @@ class Enemy():
 			if not coled:
 				self.pop()
 		coled=False
-		if grounded:
+		if roofed:
+			for _ in range(170):
+				self.pos[1]-=1
+				self.rect.y=self.pos[1]
+				if self.rect.collidelist(game.loaded_tiles)!=-1:
+					coled=True
+					break
+			if not coled:
+				self.pop()
+		elif grounded:
 			for _ in range(170):
 				self.pos[1]+=1
 				self.rect.y=self.pos[1]
@@ -911,16 +1025,29 @@ class Enemy():
 		if collide_bullet(self,game.player_bullets)!=-1:
 			self.health-=1
 			if self.health<=0:
-				game.player.add_inventory("coin",self.coin)
-				Notice("+1 coin",imgs["coin"])
+				for key,val in self.items.items():
+					game.player.add_inventory(key,val)
+					Notice(f"+{val} {key}",imgs[key])
+				for i in range(10):
+					Particle(3,self.rect.center,angle=random.random()*360,colour=(89,219,46),gravity=0,totalspeed=random.random()*1+0.1,alphaloss=4,lifeloss=-0.05,friction=1.005)
 				self.pop()
-		if False and game.daynight.night[0]==False:
+				return
+		if game.daynight.night[0]==False:
 			self.pop()
+			return
+
 	def draw(self):
 		screen.blit(self.img,withscroll(self.pos))
+	def draw2(self):
+		for p in self.pattens:
+			try:
+				p.draw()
+			except AttributeError:
+				continue
 	def pop(self):
 		game.remove_enemies.append(self)
 		del self
+		return
 
 
 class Player():
@@ -944,11 +1071,13 @@ class Player():
 		self.coyote=0
 		self.hovering_tile=False
 		self.health=10
-		self.max_health=10
+		self.max_health=15
+		self.iframes=0
+		self.max_iframes=90
 		self.hunger=60*180
 		self.max_hunger=60*180
-		self.health_bar=pygame.Rect((0,screen_height-7),(self.health/self.max_health*40,5))
-		self.hunger_bar=pygame.Rect((0,screen_height-14),(self.hunger/self.max_hunger*50,7))
+		self.health_bar=pygame.Rect((0,screen_height-8),(self.health/self.max_health*40,5))
+		self.hunger_bar=pygame.Rect((0,screen_height-9),(self.hunger/self.max_hunger*45,1))
 
 
 		self.placing_bridge=False
@@ -962,7 +1091,8 @@ class Player():
 		self.inventory={
 		"wood":0,
 		"rock":0,
-		"coin":20,
+		"coin":30,
+		"berry":5,
 		"map":0
 		}
 
@@ -971,12 +1101,16 @@ class Player():
 		self.bottom_tile=game.world.tiles[math.floor(self.pos[1]/16)][math.floor(self.pos[0]/16)]
 		#self.rect=pygame.Rect(self.pos,50,50)
 	def update(self):
-		self.health_bar=pygame.Rect((0,screen_height-7),(self.health/self.max_health*40,5))
-		self.hunger_bar=pygame.Rect((0,screen_height-14),(self.hunger/self.max_hunger*50,7))
+		self.iframes+=1
+		self.health_bar=pygame.Rect((0,screen_height-8),(self.health/self.max_health*40,5))
+		self.hunger_bar=pygame.Rect((0,screen_height-9),(self.hunger/self.max_hunger*45,1))
 		self.mappos=[math.floor(self.pos[0]/16),math.floor(self.pos[1]/16)]
 		for i in range(2):
 			if not(-12*16<self.pos[i]<game.world.size[i]*16+12*16):
 				self.pos=[game.world.size[0]*16/2,game.world.size[1]*16/2]
+				Notice("you somehow wake up where you started")
+				Notice("-1 health")
+				self.health-=1
 		if c.key["s"]:
 			self.speed[1]+=self.accel
 		if c.key["d"]:
@@ -984,6 +1118,9 @@ class Player():
 		if (c.key["w"] or c.key["SPACE"]) and (self.grounded or self.coyote<self.max_coyote) and (not self.jumped):
 			self.speed[1]-=self.jump_power
 			self.jumped=True
+			random.choice(sfx["jump"]).play()
+			for _ in range(5):
+				Particle(4+random.random()*4,self.rect.center,angle=random.random()*360,totalspeed=0.4,lifeloss=-0.04,alphaloss=5,colour=(x:=random.random()*20+150,x,x),gravity=0.02,staticspeed=[0,-1])
 		if c.key["a"]:
 			self.speed[0]-=self.accel if self.grounded else self.accel/5
 		self.moving=True if True in (c.key["a"],c.key["d"]) else False
@@ -1065,7 +1202,7 @@ class Player():
 			if game.bullets[i] in game.player_bullets:
 				continue
 			if self.rect.clipline(*game.bullets[i].line):
-				self.health-=game.bullets[i].damage
+				self.damage(game.bullets[i].damage)
 				game.bullets[i].pop()
 
 		if self.jumped:
@@ -1079,23 +1216,30 @@ class Player():
 
 		self.rect.topleft=self.pos
 		self.update_gun()
+		if self.health<=0:
+			game.stage="death"
 	def update_gun(self):
-		if self.placing_bridge:
+		if self.placing_bridge or game.in_dialogue:
 			self.gun_timer=self.gun_interval-1
 			return
 		if c.mouse[0][0]==True:
-			if self.gun_timer==self.gun_interval:
+			if self.gun_timer>=self.gun_interval:
+				random.choice(sfx["shoot"]).play()
 				self.gun_timer=0
 				angle=get_mouse_player_angle()
 				Bullet(game.player.pos,2.5,angle,sinfx(7,1,32,1,(255,0,255),cached_wave=game.cached_player_bullets[get_wave_angle(angle)]),explode=False,parent=self)
 				self.speed[0]-=math.cos(math.radians(angle))*self.recoil
 				self.speed[1]+=math.sin(math.radians(angle))*self.recoil
 				game.hit_bg.renew_attr(height=200)
-			self.gun_timer+=1
+		self.gun_timer+=1
 
-		else:
-			self.gun_timer=self.gun_interval-1
-
+	#	else:
+	#		self.gun_timer=self.gun_interval-1
+	def damage(self,amount=1):
+		if self.iframes>=self.max_iframes:
+			self.health-=amount
+			self.iframes=0
+			random.choice(sfx["p_hit"]).play()
 	def rocket_jump(self,recoil,angle):
 		print(math.cos(angle)*recoil,math.sin(angle)*recoil)
 		self.speed[0]-=math.cos(angle)*recoil
@@ -1163,8 +1307,8 @@ class Notification_Center():
 			notice.draw()
 class Daynight():
 	def __init__(self):
-		self.timer=0
-		self.reset=240*6
+		self.timer=60*80
+		self.reset=320*60
 		self.night=[False,False]
 		self.img=make_surf([screen_width,screen_height],(60,60,40))
 	def update(self):
@@ -1176,10 +1320,25 @@ class Daynight():
 			self.night[0]=True
 		else:
 			self.night[0]=False
-		if self.night==[True,False]:
-			for _ in range(10):
-				Enemy(add_poses(game.player.pos,(ran_sign()*random.random()*100,ran_sign()*random.random()*100)),imgs["enemy_stump"],[bhellpattern(90,[0,0],followplayer=True,speed=2,start_time=random.random()*90,waves=game.cached_purple_bullets)],grounded=True)
-				Enemy(add_poses(game.player.pos,(ran_sign()*random.random()*100,ran_sign()*random.random()*100)),imgs["enemy_orb"],[bhellring(4,[0,0],interval=120,angle_change=0.3,angle=random.random()*360,start_time=random.random()*120,waves=game.cached_purple_bullets)])
+		if self.night[0]==True:
+			if self.timer%(25*60)==0:
+				for _ in range(2):
+					Enemy(add_poses(game.player.pos,(ran_sign()*random.random()*100,ran_sign()*random.random()*100)),imgs["enemy_stalactite"],
+						[bhellpattern(-90,[0,0],angle_change=0,speed=2,start_time=random.random()*90,waves=game.cached_purple_bullets,interval=90)],
+						items={"coin":1,"rock":1},
+						roofed=True
+						)
+
+					Enemy(add_poses(game.player.pos,(ran_sign()*random.random()*100,ran_sign()*random.random()*100)),imgs["enemy_orb"],
+						[bhellring(4,[0,0],interval=120,angle_change=0.3,angle=random.random()*360,start_time=random.random()*120,waves=game.cached_purple_bullets)]
+						)
+					
+					Enemy(add_poses(game.player.pos,(ran_sign()*random.random()*100,ran_sign()*random.random()*100)),imgs["enemy_stump"],
+						[ripple(ripplefx(7,2,-0.3,24,colour=(236,194,70)),[0,0])],
+						items={"coin":1,"wood":1},
+						grounded=True
+						)
+				
 	def draw(self):
 		screen.blit(self.img,(0,0),special_flags=pygame.BLEND_RGB_SUB) if self.night[0] else None
 class Npc():
@@ -1191,21 +1350,32 @@ class Npc():
 		self.range=range_
 		self.speech=list(self.tree.keys())[0]
 		self.e_to_interact=imgs["e_to_interact"]
+		
+		for _ in range(640):
+			self.pos[1]+=1
+			self.rect.y=self.pos[1]
+			if self.rect.collidelist(game.world.tilelist)!=-1:
+				break
+		for _ in range(640):
+			self.pos[1]-=1
+			self.rect.y=self.pos[1]
+			if self.rect.collidelist(game.world.tilelist)==-1:
+				break
+		self.mappos=[math.floor(self.pos[0]/16),math.floor(self.pos[1]/16)]
 		game.npcs.append(self)
 	def update(self):
-
 		if c.otherkey["e"]==[True,False] and get_dist(game.player.rect.center,self.rect.center)<=self.range:
-			game.speech.update_speech(*self.tree[self.speech])
-		elif get_dist(game.player.rect.center,self.rect.center)>=self.range:
-			pass
-			#game.in_dialogue=False
+			game.speech.update_speech(*self.tree[list(self.tree.keys())[0]])
+			game.last_npc=self
+		elif get_dist(game.player.rect.center,self.rect.center)>=self.range and game.last_npc==self:
+			game.in_dialogue=False
 
-		if game.diamessage!=None and game.last_npc==self:
+		if (not game.diamessage in [None,"exit"]) and game.last_npc==self:
 
 			self.speech=str(game.diamessage)
 	def draw(self):
 		screen.blit(self.img,withscroll(self.pos))
-		if get_dist(game.player.rect.center,self.rect.center)<=self.range:
+		if get_dist(game.player.rect.center,self.rect.center)<=self.range and game.allow_e:
 			screen.blit(self.e_to_interact,withscroll(add_poses(self.pos,(-2,-8))))
 
 			
@@ -1219,6 +1389,7 @@ class Speech():
 		self.rtext=[text.render("unloaded 303")]
 		self.speech=text.render("unloaded 404")
 		self.mpressed=[False,False]
+		self.hover_surf={"surf":pygame.Surface((1,1),pygame.SRCALPHA).convert_alpha(),"pos":[0,0]}
 	def update_speech(self,speech_:str,responses:dict):
 		self.speech=text.render(speech_)
 		"""
@@ -1232,7 +1403,7 @@ class Speech():
 		game.in_dialogue=True
 		self.speech=text.render(speech_) if type(speech_)==str else Para(speech_).img
 
-		self.rtext=[[text.render(r),pygame.Rect( (0,0),(len(r)*8+2,8)),responses[r]] for i,r in enumerate(responses)]
+		self.rtext=[[text.render(r),pygame.Rect( (0,0),(len(r)*6+2,5)),responses[r]] for i,r in enumerate(responses)]
 		self.rsize=[max(r[0].get_width() for r in self.rtext)+8,len(self.rtext)*8+8]
 		for i,thing in enumerate(self.rtext):
 			thing[1].topleft=(4,i*8+2+screen_height-self.rsize[1]-self.box.get_height()-1)
@@ -1259,22 +1430,28 @@ class Speech():
 					s=get_surf_from_sheet(self.rboxsheet,(-8,-8),(8,8))
 				self.rbox.blit(s,(x,y))
 	def update(self):
+		self.hover_surf={"surf":pygame.Surface((1,1),pygame.SRCALPHA).convert_alpha(),"pos":[0,0]}
 		m=(mouse_get_pos(),pygame.mouse.get_pressed())
 		self.mpressed[1]=self.mpressed[0]
 		self.mpressed[0]=m[1][0]
-		if self.mpressed==[True,False]:
-			for r in self.rtext:
-				if r[1].collidepoint(m[0]):
+		for r in self.rtext:
+			if r[1].collidepoint(m[0]):
+				self.hover_surf={"surf":make_surf(r[1].size,(64,64,64,64),pygame.SRCALPHA),"pos":r[1].topleft}
+				if self.mpressed==[True,False]:
 					for take in r[2][1]:
 						if r[2][1][take]>game.player.inventory[take]:
 							Notice("insufficient resources")
 							return None
+					
 					for take in r[2][1]:
 						game.player.inventory[take]-=r[2][1][take]
 					for give in r[2][0]:
 						game.player.inventory[give]+=r[2][0][give]
-						Notice(f"{give} +{r[2][0][give]}")
-					if str(r[2][2])=="exit":
+						if give=="map":
+							Notice("new gem location appears on your map")
+						else:
+							Notice(f"{give} +{r[2][0][give]}")
+					if "exit" in str(r[2][2]):
 						game.in_dialogue=False
 					return r[2][2]
 
@@ -1286,13 +1463,27 @@ class Speech():
 		screen.blit(self.box,(0,145))
 		screen.blit(self.speech,(4,149))
 		screen.blit(self.rbox,(0,(screen_height-self.rsize[1])-self.box.get_height()-2))
+		screen.blit(self.hover_surf["surf"],self.hover_surf["pos"])
 		for i in range(len(self.rtext)):
 			#pygame.draw.rect(screen,(255,0,255),self.rtext[i][1])
-			screen.blit(self.rtext[i][0],self.rtext[i][1])	
+			screen.blit(self.rtext[i][0],self.rtext[i][1])
+def load_tiles(tiles,up=-5,down=15,left=-5,right=30):
+	list_=[]
+	for y in range(math.floor(game.scroll[1]/16)-up,math.floor(game.scroll[1]/16)+down):
+		for x in range(math.floor(game.scroll[0]/16)-left,math.floor(game.scroll[0]/16)+right):
+			try:
+				tile=tiles[y][x]
+			except IndexError:
+				continue
 
+			if type(tile)==Tile:
+				list_.append(tile)
+	return list_
 class Game():
 	def __init__(self):
+
 		global screen
+		screen.fill((0,0,0))
 		screen.blit(text.render("loading..."),(1,1))
 		screen.blit(text.render("do not worry if it says 'not responding'"),(1,8))
 		screen=pygame.transform.scale(screen,window.get_size())
@@ -1307,7 +1498,6 @@ class Game():
 		self.remove_particles=[]
 		self.cached_player_bullets=cached_player_bullets
 		self.cached_purple_bullets=cached_purple_bullets
-		self.scroll=[0,0]
 		self.loaded_tiles=[]
 		self.loaded_dercs=[]
 		self.loaded_parallax=[]
@@ -1316,8 +1506,11 @@ class Game():
 		self.enemies=[]
 		self.remove_enemies=[]
 		self.npcs=[]
+		self.allow_e=False
+		self.ripples=[]
 		self.stage="play"
 		self.diamessage=None
+		self.damage_taken=False
 		self.last_npc=None
 		self.notice_board=Notification_Center()
 		self.daynight=Daynight()
@@ -1326,27 +1519,59 @@ class Game():
 	def initother(self):
 		self.world=World()
 		self.player=Player()
+		self.scroll=[self.player.pos[0]-screen_width/2+5,self.player.pos[1]-screen_height/2+7]
+		self.loaded_tiles=load_tiles(self.world.tiles,down=50)
 		self.speech=Speech()
+		self.tut_timer=0
+		self.cartographer=Npc(list(game.player.pos),imgs["cartographer"],
+			{
+			"sell":[["i can sell you maps to",
+			"assist you on your search"],{
+				"buy 1 map: 30 coin  ":[{"map":1},{"coin":30},"cont"],
+				"bye":[{},{},"exit"]
+				}]
+			})
+		self.player.pos=[self.cartographer.pos[0],self.cartographer.pos[1]]
+		self.introspeech_tree={
+		"d1":[
+			"welcome to the isle of abyss,petrov",
+			{"continue":[{},{},"d2"]}],
+		"d2":[[
+		"as a reminder,you are",
+		"here to collect the 4 gems",
+		
+		],
+		{"continue":[{},{},"d3"]}
+		],
+		"d3":[
+		["if you succeed,your",
+		"freedom is granted"
+		],
+		{"exit":[{},{},"exit_start_tut"]}
+		]
+		}
+		self.speech.update_speech("welcome to the isle of abyss,petrov",{"continue":[{},{},"d2"]})
+
+	def reinit(self):
+		self.__init__()
+		self.initother()
 testsin=sinfx(5.5,0.3,32,3 ,(60,200,220),angle=45)
+testrip=ripplefx(10,2,-0.5,70)
 game=Game()
 game.initother()
 test_bg=bgsin(100,0.3,int(screen_width),0.5,(50,70,210),3,pos=[0,screen_height/2],smoothness=120)
-game.speech.update_speech("welcome to the isle of abyss,petrov",{"exit":[{},{},"exit"]})
-Npc(list(game.player.pos),imgs["cartographer"],
-	{
-	"sell":[["i can sell you maps to",
-	"assist you on your search"],{
-		"buy 1 map:20 coin":[{"map":1},{"coin":20},"cont"],
-		"bye":[{},{},"exit"]
-		}]
-	})
 
 run= True
 while run==True:
 	screen=pygame.Surface((screen_width,screen_height)).convert()
 	screen.fill((40,100,230))
 	c.update()
+	if game.diamessage=="exit_start_tut":
+		game.allow_e=True
+	if game.allow_e==False:
+		c.otherkey["e"]=[False,False]
 	clock.tick(60)
+
 	for event in pygame.event.get():
 		if event.type == pygame.QUIT:
 			run = False
@@ -1358,8 +1583,58 @@ while run==True:
 				game.stage="inventory" if game.stage!="inventory" else "play"
 			elif event.key==pygame.K_q:
 				game.player.placing_bridge=True if game.player.placing_bridge==False else False
+			elif event.key==pygame.K_r:
+				if game.player.inventory["berry"]>=1:
+					org=int(game.player.health)
+					game.player.health+=1
+					game.player.health=min(game.player.max_health,game.player.health)
+					Notice(f"+{game.player.health-org} health")
+					Notice("-1 berry",imgs["berry"])
+					game.player.add_inventory("berry",-1)
+				else:
+					Notice("you need berries to eat",image=imgs["berry"])
+			elif event.key==pygame.K_p and (game.stage=="death" or game.stage=="win"):
+				game.reinit()
+			elif event.key==pygame.K_TAB:
+				for n in game.notice_board.notices:
+					n.start_pop()
+
 
 	if game.stage=="play":
+		sfx["ambiance"].set_volume(1)
+		if game.player.gem_count>=4:
+			game.stage="win"
+		if game.diamessage in ["d2","d3"]:
+			game.speech.update_speech(*game.introspeech_tree[game.diamessage])
+			game.diamessage=None
+		if game.diamessage=="exit_start_tut":
+			Notice("open up your map with [m] and go to the purple point",begin=False,image=imgs["tut"])
+			Notice("[tab] to dismiss",begin=False)	
+			game.tut_timer+=1
+			game.diamessage=None
+		if 60*60>=game.tut_timer>=1:
+			game.tut_timer+=1
+			if game.tut_timer==60*30:
+				Notice("[left click] to shoot resources",begin=False,image=imgs["tut"])
+				Notice("shooting can boost you across gaps",begin=False,image=imgs["tut"])
+			elif game.tut_timer==60*50:
+				Notice("[q] to switch to build/ dig mode",begin=False,image=imgs["tut"])
+			elif game.tut_timer==60*60:
+				Notice("[n] to check your inventory",begin=False,image=imgs["tut"])
+				Notice("[tab] to dismiss",begin=False)
+
+		if game.damage_taken=="bam":
+			pass
+			#mirco optimisation very nessary
+		elif game.damage_taken==True:
+			Notice("[r] to heal",begin=False,image=imgs["tut"])
+			Notice("[tab] to dismiss",begin=False)
+			game.damage_taken="bam"
+		elif game.damage_taken==False:
+			if game.player.health!=10:
+				game.damage_taken=True
+
+
 		test_bg.update(height=abs(game.player.speed[0])*15+30,speed=abs(game.player.speed[1]))
 		game.hit_bg.update(height=20)
 		game.bg.update()
@@ -1433,7 +1708,13 @@ while run==True:
 		"""
 		#testsin.update()
 		#testsin.draw((0,0))
-
+		#testrip.update()
+		#testrip.draw((0,0))
+		for p in game.particles:
+			p.update()
+			p.draw()
+		for e in game.enemies:
+			e.draw2()
 		for bullet in game.bullets:
 			bullet.update()
 			bullet.draw()
@@ -1468,6 +1749,8 @@ while run==True:
 			count+=1
 			screen.blit(surf,pos)
 		screen.blit(make_surf((3,3),(255,0,0)),[game.player.mappos[0]-1,game.player.mappos[1]-1])
+		screen.blit(make_surf((3,3),(150,50,150)),game.cartographer.mappos)
+
 	elif game.stage=="inventory":
 		screen.fill((239,207,124))
 		count=0
@@ -1478,6 +1761,12 @@ while run==True:
 			screen.blit(text_,(6,count*16+6))
 			screen.blit(imgs[key],(text_.get_size()[0]+8,count*16+6))
 			count+=1
+	elif game.stage=="death":
+		sfx["ambiance"].set_volume(0)
+		screen.blit(imgs["death"],(0,0))
+	elif game.stage=="win":
+		sfx["ambiance"].set_volume(0)
+		screen.blit(imgs["win"],(0,0))
 
 	pygame.display.set_caption(f"health:{game.player.health} fps:{clock.get_fps()}")
 	screen=pygame.transform.scale(screen,window.get_size())
