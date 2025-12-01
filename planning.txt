@@ -1,19 +1,69 @@
 -make map gen
 -make autotile
-
 -make player move
 -bhopping
 -make minimap
--make player buildings
+-make player building
 -make strucs spawn
 -make stone tiles
--make resorce gathering
--make gems
 -make sin wave vfx
+-make bullets
 -make gun
--make rocket jumping
--make 3 enimes and boss
+-make rocket jumping (nevermind)
+-make resorce gathering
+-make inventory
+-make gems
+-make mining/digging
+-make paralax (tf nvm do waves instead)
+-make 3 enimes(2)
+-make wave bg (and juice)
+-refactor and make speech sys
 -make npcs
+-fix peformance(lets goo)
+-make gem map
+-fix enemy spawning
+-make bouncy wave enimy (nvm im lazy to do trig)
+-make ripple wave vfx
+-iframes
+-make chests
+-make bushes(for healthing)
+-make death
+-make hunger (nvm unnessary)
+-make enemy spawning better
 -make story
--make menu
+-make tutoral
+-make end
+-make menu (nvm I'm lazy)
 -make polish
+-improve gem spawning
+ -(4 gems, 4 quadernts)
+ -(not too close to spawn)
+ -(not too close to eachother)
+
+
+if time:
+-grass variants
+-tree variants
+-clock
+	done:
+	-make tradesman npc (buys wood and sells stuff for coin)
+
+my game is not a buggy mess
+the scope thins
+what do you mean copy and pasting code within the script is a bad practice?
+yay loading working
+credit for page:
+https://pixabay.com/sound-effects/hitting-wood-6791/
+https://pixabay.com/sound-effects/box-dropping-with-stones-46880/
+https://pixabay.com/sound-effects/birds-forest-spring-316364/
+https://pixabay.com/sound-effects/digging-v1-27585/
+
+other sfx when not in class:
+d=done
+- wood placing d
+- enemy die d
+- enemy hit
+- digging d
+- tree die
+- rock die
+- bush die
