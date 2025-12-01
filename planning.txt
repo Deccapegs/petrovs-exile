@@ -34,28 +34,36 @@
 -make tutoral
 -make end
 -make menu (nvm I'm lazy)
-
 -make polish
 -improve gem spawning
+ -(4 gems, 4 quadernts)
+ -(not too close to spawn)
+ -(not too close to eachother)
 
-if time
+
+if time:
 -grass variants
 -tree variants
 -clock
--make tradesman npc (buys wood and sells stuff for coin)
+	done:
+	-make tradesman npc (buys wood and sells stuff for coin)
 
 my game is not a buggy mess
 the scope thins
 what do you mean copy and pasting code within the script is a bad practice?
-
+yay loading working
 credit for page:
+https://pixabay.com/sound-effects/hitting-wood-6791/
+https://pixabay.com/sound-effects/box-dropping-with-stones-46880/
 https://pixabay.com/sound-effects/birds-forest-spring-316364/
+https://pixabay.com/sound-effects/digging-v1-27585/
 
 other sfx when not in class:
-- wood placing
-- enemy die
+d=done
+- wood placing d
+- enemy die d
 - enemy hit
-- digging
+- digging d
 - tree die
 - rock die
 - bush die
